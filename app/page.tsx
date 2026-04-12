@@ -1,65 +1,86 @@
-import Image from "next/image";
+'use client';
+import bcrypt from 'bcryptjs';
+import { useState } from 'react';
+import { useRouter } from 'next/navigation'; // 1. 이동 도구 추가
+import { supabase } from '@/lib/supabase';
 
-export default function Home() {
+export default function LoginPage() {
+  const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const router = useRouter(); // 2. 이동 함수 초기화
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const { data, error } = await supabase
+      .from('partners')
+      .select('*')
+      .eq('user_id', phone)
+      .single();
+
+    if (error || !data) {
+      alert('등록되지 않은 사용자입니다.');
+      return;
+    }
+
+    if (data) {
+      // 🔥 암호화된 비번과 사용자가 입력한 비번을 비교
+      const isMatch = await bcrypt.compare(password, data.password);
+
+      if (isMatch) {
+        alert(`${data.user_name}님, 환영합니다!`);
+        router.push('/dashboard');
+      } else {
+        alert('비밀번호가 틀렸습니다.');
+      }
+    }
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+      <div className="max-w-md w-full bg-white rounded-3xl shadow-2xl p-10 border border-slate-100">
+        <div className="text-center mb-10">
+          <h1 className="text-3xl font-extrabold text-blue-600 tracking-tight">Atomy Partner Care</h1>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+
+        <form onSubmit={handleLogin} className="space-y-4">
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">전화번호 (아이디)</label>
+            <input
+              type="text"
+              placeholder="01012345678"
+              className="w-full px-4 py-4 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">비밀번호</label>
+            <input
+              type="password"
+              placeholder="••••••••"
+              className="w-full px-4 py-4 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </div>
+
+          <div className="pt-2 space-y-3">
+            <button type="submit" className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg transition duration-200">
+              로그인하기
+            </button>
+
+            {/* 3. 회원가입 페이지로 보내주는 버튼 추가 */}
+            <button
+              type="button"
+              onClick={() => router.push('/signup')}
+              className="w-full py-4 bg-white border border-blue-600 text-blue-600 font-bold rounded-xl hover:bg-blue-50 transition duration-200"
+            >
+              회원가입 하러가기
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
