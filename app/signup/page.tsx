@@ -11,11 +11,9 @@ export default function SignupPage() {
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    // 🚀 [보안] 전화번호를 가상 이메일로 변환
     const virtualEmail = `${phone}@atomy.co.kr`;
 
-    // 1. Supabase 공식 인증 서버에 회원가입 (Auth)
+    // 1. 회원가입 실행
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email: virtualEmail,
       password: password,
@@ -27,23 +25,25 @@ export default function SignupPage() {
     }
 
     if (authData.user) {
-      // 2. 인증 성공 후, 추가 정보(이름, 폰번호)를 partners 테이블에 저장
+      // 2. 파트너 테이블에 추가 정보 저장
       const { error: dbError } = await supabase.from('partners').insert([
         {
-          id: authData.user.id, // Auth 서버가 만들어준 고유 ID를 그대로 사용 (매우 중요!)
+          id: authData.user.id,
           user_id: phone,
           user_name: userName,
-          // 비밀번호는 Auth 서버가 관리하므로 여기에 직접 저장하지 않아 보안에 더 좋습니다!
         },
       ]);
 
       if (dbError) {
-        alert('추가 정보 저장 중 오류가 발생했습니다.');
+        alert('데이터 저장 중 오류가 발생했습니다.');
         return;
       }
 
-      alert('회원가입이 완료되었습니다! 로그인해 주세요.');
-      router.push('/');
+      // 🔥 [핵심 추가] 가입되자마자 생성된 세션을 강제로 파기합니다.
+      await supabase.auth.signOut();
+
+      alert('회원가입이 완료되었습니다! 방금 만드신 비밀번호로 로그인해 주세요.');
+      router.push('/'); // 이제 세션이 없으므로 로그인 화면에 멈춰있게 됩니다.
     }
   };
 
