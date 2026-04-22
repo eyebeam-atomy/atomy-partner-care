@@ -18,7 +18,6 @@ export default function Dashboard() {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCustomerId, setEditingCustomerId] = useState<number | null>(null);
-  // 🚀 태그 관련 상태 제거, 기존 폼 유지
   const [formData, setFormData] = useState({ name: '', phone: '', address: '', memo: '', birthday: '' });
 
   const [history, setHistory] = useState<any[]>([]);
@@ -37,7 +36,6 @@ export default function Dashboard() {
   const [alertModal, setAlertModal] = useState({ isOpen: false, title: '', message: '' });
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: () => {} });
 
-  // 📊 월간 통계 상태
   const [monthlyStats, setMonthlyStats] = useState({ newCustomers: 0, consultations: 0, purchases: 0 });
 
   const modalScrollRef = useRef<HTMLDivElement>(null);
@@ -73,7 +71,6 @@ export default function Dashboard() {
     const sevenDaysLater = new Date(now); sevenDaysLater.setDate(now.getDate() + 7);
     const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    // 📊 통계: 이번 달 신규 가입자 계산
     const newCustCount = customersData.filter(c => new Date(c.created_at) >= firstDayOfMonth).length;
 
     let alerts: any[] = [];
@@ -95,7 +92,6 @@ export default function Dashboard() {
     const { data: cons } = await supabase.from('consultations').select('customer_id, created_at').in('customer_id', cIds);
     const { data: purs } = await supabase.from('purchases').select('customer_id, created_at, expiry_date, product_name').in('customer_id', cIds);
 
-    // 📊 통계: 이번 달 상담 및 구매 건수 계산
     const consCount = cons?.filter(c => new Date(c.created_at) >= firstDayOfMonth).length || 0;
     const pursCount = purs?.filter(p => new Date(p.created_at) >= firstDayOfMonth).length || 0;
     setMonthlyStats({ newCustomers: newCustCount, consultations: consCount, purchases: pursCount });
@@ -131,7 +127,8 @@ export default function Dashboard() {
       if (lastPurDate < thirtyDaysAgo) alertReasons.push('🛒 구매 1개월 미진행');
 
       if (alertReasons.length > 0) {
-        alerts.push({ ...customer, reasons: alertReasons, priority: alertReasons.some(r => r.includes('🎂')) ? 5 : 1 });
+        // 🚀 [수정] r 매개변수의 타입을 string으로 명시했습니다.
+        alerts.push({ ...customer, reasons: alertReasons, priority: alertReasons.some((r: string) => r.includes('🎂')) ? 5 : 1 });
       }
     });
 
@@ -300,7 +297,6 @@ export default function Dashboard() {
 
         <div className="p-4 flex-1 overflow-y-auto flex flex-col">
 
-          {/* 📊 이번 달 실적 요약 보드 */}
           <div className="mb-6 grid grid-cols-3 gap-2 shrink-0">
             <div className="bg-white p-3 rounded-2xl shadow-sm border border-slate-100 text-center flex flex-col justify-center">
               <p className="text-[11px] font-bold text-slate-400 mb-1">이번 달 신규</p>
@@ -337,7 +333,6 @@ export default function Dashboard() {
                       <h3 className="font-bold text-slate-900 text-lg mb-0.5">{c.name}</h3>
                       <p className="text-slate-500 text-sm">{c.phone}</p>
                     </div>
-                    {/* 📞 원터치 전화/문자 버튼 */}
                     <div className="flex gap-1.5" onClick={(e) => e.stopPropagation()}>
                       <a href={`tel:${c.phone}`} className="w-9 h-9 flex items-center justify-center bg-green-50 text-green-600 rounded-full border border-green-100 shadow-sm active:bg-green-100 text-lg">📞</a>
                       <a href={`sms:${c.phone}`} className="w-9 h-9 flex items-center justify-center bg-blue-50 text-blue-600 rounded-full border border-blue-100 shadow-sm active:bg-blue-100 text-lg">✉️</a>
@@ -358,7 +353,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* 커스텀 알림/확인창/CRM 모달 */}
       {alertModal.isOpen && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-6 z-[100]">
           <div className="bg-white w-full max-w-xs rounded-3xl p-6 shadow-2xl text-center">
@@ -391,13 +385,16 @@ export default function Dashboard() {
             </div>
             <div className="space-y-3 overflow-y-auto pb-6">
               {crmAlerts.map(c => (
-                <div key={c.id} onClick={() => { if(!c.isSystem) { setShowCrmPopup(false); openCustomerModal(c); } }} className={`${c.reasons.some(r => r.includes('🎂')) ? 'bg-orange-50 border-orange-100' : (c.isSystem ? 'bg-blue-50 border-blue-100' : 'bg-red-50 border-red-100')} p-4 rounded-2xl border flex flex-col gap-3 cursor-pointer`}>
+                // 🚀 [수정] r 매개변수의 타입을 string으로 명시했습니다.
+                <div key={c.id} onClick={() => { if(!c.isSystem) { setShowCrmPopup(false); openCustomerModal(c); } }} className={`${c.reasons.some((r: string) => r.includes('🎂')) ? 'bg-orange-50 border-orange-100' : (c.isSystem ? 'bg-blue-50 border-blue-100' : 'bg-red-50 border-red-100')} p-4 rounded-2xl border flex flex-col gap-3 cursor-pointer`}>
                   <div className="flex justify-between items-center">
-                    <h3 className={`font-bold text-lg ${c.reasons.some(r => r.includes('🎂')) ? 'text-orange-900' : (c.isSystem ? 'text-blue-900' : 'text-red-900')}`}>{c.name}</h3>
+                    {/* 🚀 [수정] r 매개변수의 타입을 string으로 명시했습니다. */}
+                    <h3 className={`font-bold text-lg ${c.reasons.some((r: string) => r.includes('🎂')) ? 'text-orange-900' : (c.isSystem ? 'text-blue-900' : 'text-red-900')}`}>{c.name}</h3>
                     {!c.isSystem && <button className="px-3 py-1.5 bg-white rounded-xl text-xs font-bold shadow-sm border text-red-600 border-red-100">관리하기</button>}
                   </div>
                   <div className="flex flex-col gap-1.5 w-full">
-                    {c.reasons.map((r, idx) => (
+                    {/* 🚀 [수정] r, idx 매개변수의 타입을 명시했습니다. */}
+                    {c.reasons.map((r: string, idx: number) => (
                       <span key={idx} className={`text-xs font-medium bg-white px-2.5 py-1.5 rounded-lg shadow-sm border ${c.isSystem ? 'text-blue-700 border-blue-100' : 'text-red-700 border-red-100'}`}>{r}</span>
                     ))}
                   </div>
@@ -408,7 +405,6 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* 새 소비자 등록/수정 모달 */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
           <div className="bg-white w-full max-w-md rounded-t-[2rem] sm:rounded-[2.5rem] p-6 pt-8 pb-10 shadow-2xl relative">
@@ -416,12 +412,7 @@ export default function Dashboard() {
             <form onSubmit={handleCustomerSubmit} className="space-y-3">
               <input type="text" placeholder="이름" required className="w-full px-4 py-4 bg-white border border-slate-200 rounded-xl outline-none text-slate-900 placeholder:text-slate-500 font-medium" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
               <input type="tel" placeholder="전화번호" required className="w-full px-4 py-4 bg-white border border-slate-200 rounded-xl outline-none text-slate-900 placeholder:text-slate-500 font-medium" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} />
-
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 ml-1">생일 (알림용)</label>
-                <input type="date" className="w-full px-4 py-4 bg-white border border-slate-200 rounded-xl outline-none text-slate-900 font-medium" value={formData.birthday} onChange={e => setFormData({...formData, birthday: e.target.value})} />
-              </div>
-
+              <div className="space-y-1"><label className="text-xs font-bold text-slate-500 ml-1">생일 (알림용)</label><input type="date" className="w-full px-4 py-4 bg-white border border-slate-200 rounded-xl outline-none text-slate-900 font-medium" value={formData.birthday} onChange={e => setFormData({...formData, birthday: e.target.value})} /></div>
               <input type="text" placeholder="주소 (선택)" className="w-full px-4 py-4 bg-white border border-slate-200 rounded-xl outline-none text-slate-900 placeholder:text-slate-500 font-medium" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} />
               <textarea placeholder="메모" className="w-full px-4 py-4 bg-white border border-slate-200 rounded-xl h-24 resize-none outline-none text-slate-900 placeholder:text-slate-500 font-medium" value={formData.memo} onChange={e => setFormData({...formData, memo: e.target.value})} />
               <div className="flex gap-3 pt-2">
@@ -433,7 +424,6 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* 소비자 상세 모달 */}
       {selectedCustomer && (
         <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center p-0 sm:p-4 z-40">
           <div ref={modalScrollRef} className="bg-white w-full max-w-md h-[92vh] sm:h-[800px] overflow-y-auto rounded-t-[2rem] sm:rounded-[2.5rem] p-5 shadow-2xl relative scroll-smooth flex flex-col">
@@ -443,7 +433,6 @@ export default function Dashboard() {
                 <h2 className="text-2xl font-bold text-slate-900">{selectedCustomer.name}</h2>
                 <div className="flex items-center gap-3 mt-1.5">
                   <p className="text-slate-500 font-medium">{selectedCustomer.phone}</p>
-                  {/* 📞 상세창 원터치 버튼 */}
                   <div className="flex gap-1.5">
                     <a href={`tel:${selectedCustomer.phone}`} className="w-7 h-7 flex items-center justify-center bg-green-50 text-green-600 rounded-full border border-green-100 shadow-sm text-sm">📞</a>
                     <a href={`sms:${selectedCustomer.phone}`} className="w-7 h-7 flex items-center justify-center bg-blue-50 text-blue-600 rounded-full border border-blue-100 shadow-sm text-sm">✉️</a>
