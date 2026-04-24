@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase';
 export default function SignupPage() {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState(''); // 🚀 비밀번호 확인용 상태 추가
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [userName, setUserName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
@@ -15,7 +15,13 @@ export default function SignupPage() {
     e.preventDefault();
     setIsLoading(true);
 
-    // 🚀 [추가] 비밀번호 일치 여부 먼저 검사!
+    // 🚀 [수정] 비밀번호 8자리 미만인 경우 차단
+    if (password.length < 8) {
+      alert('🚨 비밀번호는 보안을 위해 8자리 이상으로 설정해 주세요!');
+      setIsLoading(false);
+      return;
+    }
+
     if (password !== confirmPassword) {
       alert('🚨 비밀번호가 일치하지 않습니다. 다시 한번 확인해 주세요!');
       setIsLoading(false);
@@ -32,7 +38,6 @@ export default function SignupPage() {
 
     const virtualEmail = `${cleanPhone}@atomy.co.kr`;
 
-    // 1. 회원가입 실행
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email: virtualEmail,
       password: password,
@@ -64,7 +69,6 @@ export default function SignupPage() {
       }
 
       await supabase.auth.signOut();
-
       alert('🎉 회원가입이 완료되었습니다! 방금 만드신 비밀번호로 로그인해 주세요.');
       router.push('/');
     }
@@ -85,39 +89,39 @@ export default function SignupPage() {
               placeholder="홍길동"
               maxLength={20}
               required
-              className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-xl outline-none text-slate-900 placeholder:text-slate-400 font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all"
+              className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-xl outline-none text-slate-900 placeholder:text-slate-400 font-medium focus:border-blue-500 transition-all"
               value={userName}
               onChange={(e) => setUserName(e.target.value)}
             />
           </div>
 
           <div className="space-y-1">
-            <label className="text-[11px] font-bold text-slate-500 ml-1">전화번호 (아이디로 사용, 숫자만 11자)</label>
+            <label className="text-[11px] font-bold text-slate-500 ml-1">전화번호 (아이디로 사용)</label>
             <input
               type="tel"
               placeholder="01012345678"
               maxLength={11}
               required
-              className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-xl outline-none text-slate-900 placeholder:text-slate-400 font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all"
+              className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-xl outline-none text-slate-900 placeholder:text-slate-400 font-medium focus:border-blue-500 transition-all"
               value={phone}
               onChange={(e) => setPhone(e.target.value.replace(/[^0-9]/g, ''))}
             />
           </div>
 
           <div className="space-y-1">
-            <label className="text-[11px] font-bold text-slate-500 ml-1">비밀번호 (최대 20자)</label>
+            {/* 🚀 [수정] 안내 문구에 8자 이상 명시 */}
+            <label className="text-[11px] font-bold text-slate-500 ml-1">비밀번호 (8자~20자)</label>
             <input
               type="password"
-              placeholder="비밀번호"
+              placeholder="8자리 이상 입력"
               maxLength={20}
               required
-              className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-xl outline-none text-slate-900 placeholder:text-slate-400 font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all"
+              className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-xl outline-none text-slate-900 placeholder:text-slate-400 font-medium focus:border-blue-500 transition-all"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
           </div>
 
-          {/* 🚀 [추가] 비밀번호 확인 입력칸 */}
           <div className="space-y-1">
             <label className="text-[11px] font-bold text-slate-500 ml-1">비밀번호 확인</label>
             <input
@@ -125,7 +129,7 @@ export default function SignupPage() {
               placeholder="비밀번호 다시 입력"
               maxLength={20}
               required
-              className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-xl outline-none text-slate-900 placeholder:text-slate-400 font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all"
+              className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-xl outline-none text-slate-900 placeholder:text-slate-400 font-medium focus:border-blue-500 transition-all"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
             />
