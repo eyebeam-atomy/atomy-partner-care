@@ -66,8 +66,10 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4 font-sans">
       <div className="bg-white w-full max-w-md rounded-[2.5rem] p-8 py-12 shadow-2xl">
-        <h1 className="text-4xl font-extrabold text-blue-600 text-center mb-2 tracking-tight">당정 최고</h1>
-        <p className="text-center text-slate-500 mb-10 font-medium">소비자 관리 시스템에 오신 것을 환영합니다</p>
+        <h1 className="text-4xl font-extrabold text-blue-600 text-center mb-2 tracking-tight flex justify-center items-center whitespace-nowrap">당정 최고</h1>
+          <p className="text-center text-slate-500 mb-10 font-medium text-[15px] sm:text-base break-keep px-2">
+            소비자 관리 시스템에 오신 것을 환영합니다
+          </p>
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div className="space-y-1">
