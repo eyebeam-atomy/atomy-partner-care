@@ -6,15 +6,22 @@ import { supabase } from '@/lib/supabase';
 export default function SignupPage() {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState(''); // 🚀 비밀번호 확인용 상태 추가
   const [userName, setUserName] = useState('');
-  const [isLoading, setIsLoading] = useState(false); // 🚀 가입 중복 클릭 방지용
+  const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
 
-    // 🚀 하이픈(-)을 실수로 입력했을 경우를 대비해 숫자만 걸러내기
+    // 🚀 [추가] 비밀번호 일치 여부 먼저 검사!
+    if (password !== confirmPassword) {
+      alert('🚨 비밀번호가 일치하지 않습니다. 다시 한번 확인해 주세요!');
+      setIsLoading(false);
+      return;
+    }
+
     const cleanPhone = phone.replace(/[^0-9]/g, '');
 
     if (cleanPhone.length < 10) {
@@ -32,17 +39,20 @@ export default function SignupPage() {
     });
 
     if (authError) {
-      alert(`가입 실패: ${authError.message}`);
+      if (authError.message.includes('already registered')) {
+        alert('🚨 이미 가입된 전화번호입니다. 뒤로 가기를 눌러 로그인해 주세요!');
+      } else {
+        alert(`가입 실패: 시스템 오류가 발생했습니다. (${authError.message})`);
+      }
       setIsLoading(false);
       return;
     }
 
     if (authData.user) {
-      // 2. 파트너 테이블에 추가 정보 저장 (총단장님 로직 유지!)
       const { error: dbError } = await supabase.from('partners').insert([
         {
           id: authData.user.id,
-          user_id: cleanPhone, // 숫자만 걸러낸 번호 저장
+          user_id: cleanPhone,
           user_name: userName,
         },
       ]);
@@ -53,11 +63,10 @@ export default function SignupPage() {
         return;
       }
 
-      // 🔥 [핵심 추가] 가입되자마자 생성된 세션을 강제로 파기합니다. (총단장님 로직 유지!)
       await supabase.auth.signOut();
 
-      alert('회원가입이 완료되었습니다! 방금 만드신 비밀번호로 로그인해 주세요.');
-      router.push('/'); // 이제 세션이 없으므로 로그인 화면에 멈춰있게 됩니다.
+      alert('🎉 회원가입이 완료되었습니다! 방금 만드신 비밀번호로 로그인해 주세요.');
+      router.push('/');
     }
 
     setIsLoading(false);
@@ -69,7 +78,6 @@ export default function SignupPage() {
         <h1 className="text-3xl font-extrabold text-blue-600 text-center mb-10 tracking-tight">파트너 회원가입</h1>
 
         <form onSubmit={handleSignup} className="space-y-4">
-          {/* 🚀 이름: maxLength 20, 글자색 진하게 */}
           <div className="space-y-1">
             <label className="text-[11px] font-bold text-slate-500 ml-1">성함 (최대 20자)</label>
             <input
@@ -83,7 +91,6 @@ export default function SignupPage() {
             />
           </div>
 
-          {/* 🚀 전화번호: maxLength 11, 숫자만 입력되도록 강제, 글자색 진하게 */}
           <div className="space-y-1">
             <label className="text-[11px] font-bold text-slate-500 ml-1">전화번호 (아이디로 사용, 숫자만 11자)</label>
             <input
@@ -93,11 +100,10 @@ export default function SignupPage() {
               required
               className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-xl outline-none text-slate-900 placeholder:text-slate-400 font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all"
               value={phone}
-              onChange={(e) => setPhone(e.target.value.replace(/[^0-9]/g, ''))} // 🚀 입력 시 숫자만 남김
+              onChange={(e) => setPhone(e.target.value.replace(/[^0-9]/g, ''))}
             />
           </div>
 
-          {/* 🚀 비밀번호: maxLength 20, 글자색 진하게 */}
           <div className="space-y-1">
             <label className="text-[11px] font-bold text-slate-500 ml-1">비밀번호 (최대 20자)</label>
             <input
@@ -108,6 +114,20 @@ export default function SignupPage() {
               className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-xl outline-none text-slate-900 placeholder:text-slate-400 font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+            />
+          </div>
+
+          {/* 🚀 [추가] 비밀번호 확인 입력칸 */}
+          <div className="space-y-1">
+            <label className="text-[11px] font-bold text-slate-500 ml-1">비밀번호 확인</label>
+            <input
+              type="password"
+              placeholder="비밀번호 다시 입력"
+              maxLength={20}
+              required
+              className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-xl outline-none text-slate-900 placeholder:text-slate-400 font-medium focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
             />
           </div>
 
@@ -128,7 +148,7 @@ export default function SignupPage() {
             onClick={() => router.push('/')}
             className="w-full bg-white text-slate-600 border-2 border-slate-200 py-3.5 rounded-xl font-bold text-lg active:scale-95 transition-transform hover:bg-slate-50"
           >
-            돌아가기
+            뒤로 가기
           </button>
         </div>
       </div>
