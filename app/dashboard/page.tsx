@@ -303,26 +303,34 @@ export default function Dashboard() {
       `}</style>
       <div className="w-full max-w-md mx-auto bg-slate-50 min-h-screen sm:min-h-[850px] sm:rounded-[2.5rem] shadow-2xl overflow-hidden relative flex flex-col">
 
-        {/* 🚀 [변경 포인트] 2단 헤더 - 종 아이콘 중앙 배치 */}
         <header className="px-6 pt-12 pb-6 bg-blue-600 text-white shadow-md z-10">
           <div className="flex flex-col gap-4">
-            {/* 1단: 환영 인사 */}
-            <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-extrabold tracking-tight">
+
+            {/* 🚀 [해결 완료] 1단: 환영 인사 & 총단장님 전용 전체 관리 버튼 (오른쪽 끝으로 이동!) */}
+            <div className="flex items-center justify-between gap-2">
+              <h1 className="text-2xl font-extrabold tracking-tight truncate">
                 {currentUser?.user_name}님, <span className="text-blue-200 font-medium text-lg">환영합니다! 👋</span>
               </h1>
+
+              {/* 총단장님 VIP 마스터 키 */}
+              {currentUser?.user_id === '01093693777' && (
+                <button onClick={() => router.push('/admin')} className="whitespace-nowrap px-3 py-2 bg-amber-500 hover:bg-amber-400 rounded-xl text-white font-bold text-[11px] transition-colors shadow-lg animate-pulse flex items-center shrink-0">
+                  🛠️ 전체 관리
+                </button>
+              )}
             </div>
 
-            {/* 2단: 관리 도구 - 3구역 정렬 */}
-            <div className="flex items-center bg-blue-700/30 p-2 rounded-2xl border border-blue-500/30">
-              {/* 왼쪽: 암호변경 */}
+            {/* 2단: 관리 도구 (다시 3구역 정렬로 깔끔하게 복구) */}
+            <div className="flex items-center justify-between bg-blue-700/30 p-2 rounded-2xl border border-blue-500/30">
+
+              {/* 왼쪽: 암호변경 (이제 넓게 혼자 씁니다!) */}
               <div className="flex-1 flex justify-start">
-                <button onClick={() => setIsPwdModalOpen(true)} className="px-3 py-2 bg-blue-500/50 hover:bg-blue-500 rounded-xl text-white font-bold text-xs transition-colors flex items-center gap-1">
+                <button onClick={() => setIsPwdModalOpen(true)} className="whitespace-nowrap px-3 py-2 bg-blue-500/50 hover:bg-blue-500 rounded-xl text-white font-bold text-xs transition-colors flex items-center gap-1">
                   🔒 암호변경
                 </button>
               </div>
 
-              {/* 가운데: 알림 종 (절대적 정가운데 느낌을 위해) */}
+              {/* 가운데: 알림 종 */}
               <div className="flex-1 flex justify-center">
                 <button
                   onClick={() => { if(crmAlerts.length > 0) setShowCrmPopup(true); }}
@@ -339,7 +347,7 @@ export default function Dashboard() {
 
               {/* 오른쪽: 로그아웃 */}
               <div className="flex-1 flex justify-end">
-                <button onClick={handleLogout} className="px-4 py-2 bg-white text-blue-600 rounded-xl font-extrabold text-xs shadow-sm hover:bg-blue-50 transition-colors">
+                <button onClick={handleLogout} className="whitespace-nowrap px-4 py-2 bg-white text-blue-600 rounded-xl font-extrabold text-xs shadow-sm hover:bg-blue-50 transition-colors">
                   로그아웃
                 </button>
               </div>
