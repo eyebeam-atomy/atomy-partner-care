@@ -63,11 +63,45 @@ export default function Dashboard() {
     const checkUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return router.push('/');
+
       const { data: userData } = await supabase.from('partners').select('*').eq('id', session.user.id).single();
-      if (userData) setCurrentUser({ ...userData, auth_created_at: session.user.created_at });
-      else router.push('/');
+
+      if (userData) {
+        setCurrentUser({ ...userData, auth_created_at: session.user.created_at });
+
+        // 🚀 [추가됨] 자동 출석 체크 (방문 통계 센서)
+        const sessionKey = `visited_${today}`;
+        if (!sessionStorage.getItem(sessionKey)) {
+          const { data: existingLog } = await supabase
+            .from('visit_logs')
+            .select('*')
+            .eq('partner_id', session.user.id)
+            .eq('visit_date', today)
+            .single();
+
+          if (existingLog) {
+            // 오늘 온 적 있으면 방문 횟수(count) + 1
+            await supabase.from('visit_logs')
+              .update({
+                visit_count: existingLog.visit_count + 1,
+                last_visited_at: new Date().toISOString()
+              })
+              .eq('id', existingLog.id);
+          } else {
+            // 오늘 처음 왔으면 새로 한 줄 추가
+            await supabase.from('visit_logs')
+              .insert([{ partner_id: session.user.id, visit_date: today }]);
+          }
+          // 이번 창에서는 도장 찍었음을 브라우저에 기억시킴 (새로고침 도배 방지)
+          sessionStorage.setItem(sessionKey, 'true');
+        }
+      } else {
+        router.push('/');
+      }
     };
+
     checkUser();
+
     const fetchProducts = async () => {
       const { data } = await supabase.from('products').select('*');
       if (data) setProductList(data);
