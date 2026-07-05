@@ -47,29 +47,29 @@ export default function Dashboard() {
   const [editingConsultationId, setEditingConsultationId] = useState<number | null>(null);
   const [consultationData, setConsultationData] = useState({ date: today, content: '', next_meeting_date: '' });
   const [editingPurchaseId, setEditingPurchaseId] = useState<number | null>(null);
-  const [purchaseData, setPurchaseData] = useState({ date: today, duration: '30' });
+  const [purchaseData, setPurchaseData] = useState({ date: today, duration: '30', price: '' });
   const productNameRef = useRef<HTMLInputElement>(null);
   const [crmAlerts, setCrmAlerts] = useState<any[]>([]);
   const [showCrmPopup, setShowCrmPopup] = useState(false);
   const [hasReadTodayNotifications, setHasReadTodayNotifications] = useState(false);
   const hasAutoShownCrm = useRef(false);
   const [alertModal, setAlertModal] = useState({ isOpen: false, title: '', message: '' });
-  const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: () => {} });
+  const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', confirmText: '삭제', onConfirm: () => {} });
   const [monthlyStats, setMonthlyStats] = useState({ newCustomers: 0, consultations: 0, purchases: 0 });
   const modalScrollRef = useRef<HTMLDivElement>(null);
 
   const showAlert = (title: string, message: string) => { setAlertModal({ isOpen: true, title, message }); };
-  const showConfirm = (title: string, message: string, onConfirm: () => void) => { setConfirmModal({ isOpen: true, title, message, onConfirm }); };
+  const showConfirm = (title: string, message: string, onConfirm: () => void, confirmText = '삭제') => { setConfirmModal({ isOpen: true, title, message, confirmText, onConfirm }); };
 
   useEffect(() => {
+    // 브라우저 뒤로가기 버튼으로 로그아웃 확인창이 뜨지 않도록 막습니다.
+    // 로그아웃은 화면의 '로그아웃' 버튼을 눌렀을 때만 실행됩니다.
     window.history.pushState(null, '', window.location.href);
+
     const handlePopState = () => {
       window.history.pushState(null, '', window.location.href);
-      showConfirm("로그아웃", "로그아웃 하시겠습니까?", async () => {
-        await supabase.auth.signOut();
-        router.replace('/');
-      });
     };
+
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
@@ -353,7 +353,7 @@ export default function Dashboard() {
     setEditingConsultationId(null);
     setConsultationData({ date: today, content: '', next_meeting_date: '' });
     setEditingPurchaseId(null);
-    setPurchaseData({ date: today, duration: '30' });
+    setPurchaseData({ date: today, duration: '30', price: '' });
     if (productNameRef.current) productNameRef.current.value = '';
   };
 
@@ -402,10 +402,12 @@ export default function Dashboard() {
     expiryDate.setDate(pDate.getDate() + parseInt(purchaseData.duration));
     const productName = productNameRef.current?.value || '';
     if (!productName) return showAlert("입력 확인", "제품명을 입력해주세요.");
-    const payload = { customer_id: selectedCustomer.id, product_name: productName, duration_days: parseInt(purchaseData.duration), created_at: pDate.toISOString(), expiry_date: expiryDate.toISOString() };
+    const price = purchaseData.price ? parseInt(purchaseData.price.replace(/,/g, ''), 10) : null;
+    if (purchaseData.price && Number.isNaN(price)) return showAlert("입력 확인", "가격은 숫자로 입력해주세요.");
+    const payload = { customer_id: selectedCustomer.id, product_name: productName, duration_days: parseInt(purchaseData.duration), price, created_at: pDate.toISOString(), expiry_date: expiryDate.toISOString() };
     if (editingPurchaseId) await supabase.from('purchases').update(payload).eq('id', editingPurchaseId);
     else await supabase.from('purchases').insert([payload]);
-    setPurchaseData({ date: today, duration: '30' });
+    setPurchaseData({ date: today, duration: '30', price: '' });
     if (productNameRef.current) productNameRef.current.value = '';
     setEditingPurchaseId(null);
     fetchHistory(); fetchCustomers(); scrollToTop();
@@ -413,15 +415,15 @@ export default function Dashboard() {
 
   const editPurchase = (item: any) => {
     setEditingPurchaseId(item.id);
-    setPurchaseData({ date: new Date(item.created_at).toISOString().split('T')[0], duration: item.duration_days.toString() });
+    setPurchaseData({ date: new Date(item.created_at).toISOString().split('T')[0], duration: item.duration_days.toString(), price: item.price ? item.price.toLocaleString('ko-KR') : '' });
     if (productNameRef.current) productNameRef.current.value = item.product_name;
     scrollToTop();
   };
 
   const deletePurchase = (id: number) => { showConfirm("삭제", "구매 이력을 삭제하시겠습니까?", async () => { await supabase.from('purchases').delete().eq('id', id); fetchHistory(); fetchCustomers(); }); };
 
-  const handleLogout = async () => { await supabase.auth.signOut(); router.push('/'); };
-  const handleDeleteAccount = () => { showConfirm("⚠️ 회원 탈퇴", "탈퇴 시 모든 데이터가 즉시 삭제됩니다.", async () => { const { error } = await supabase.rpc('delete_user'); if (!error) { await supabase.auth.signOut(); router.push('/'); } }); };
+  const handleLogout = () => { showConfirm("로그아웃", "로그아웃 하시겠습니까?", async () => { await supabase.auth.signOut(); router.push('/'); }, "로그아웃"); };
+  const handleDeleteAccount = () => { showConfirm("⚠️ 회원 탈퇴", "탈퇴 시 모든 데이터가 즉시 삭제됩니다.", async () => { const { error } = await supabase.rpc('delete_user'); if (!error) { await supabase.auth.signOut(); router.push('/'); } }, "탈퇴"); };
 
   return (
     <div className="min-h-screen bg-slate-100 sm:py-8 font-sans overflow-x-hidden">
@@ -637,7 +639,7 @@ export default function Dashboard() {
             <p className="text-slate-600 mb-6 leading-relaxed">{confirmModal.message}</p>
             <div className="flex gap-3">
               <button onClick={() => setConfirmModal({ ...confirmModal, isOpen: false })} className="flex-1 py-3.5 bg-slate-100 text-slate-600 font-bold rounded-xl active:bg-slate-200">취소</button>
-              <button onClick={() => { confirmModal.onConfirm(); setConfirmModal({ ...confirmModal, isOpen: false }); }} className="flex-1 py-3.5 bg-red-500 text-white font-bold rounded-xl shadow-lg active:scale-95 transition-transform">삭제</button>
+              <button onClick={() => { confirmModal.onConfirm(); setConfirmModal({ ...confirmModal, isOpen: false }); }} className="flex-1 py-3.5 bg-red-500 text-white font-bold rounded-xl shadow-lg active:scale-95 transition-transform">{confirmModal.confirmText}</button>
             </div>
           </div>
         </div>
@@ -700,8 +702,8 @@ export default function Dashboard() {
               </div>
               <form onSubmit={handlePurchaseSubmit} className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 space-y-3">
                 <h3 className="font-bold text-emerald-900 text-sm">{editingPurchaseId ? '✏️ 구매 수정' : '🛒 구매 기록'}</h3>
-                <div className="flex flex-col gap-2"><div className="relative"><input type="date" required className="w-full px-3 py-3 bg-white border border-emerald-200 rounded-xl text-sm outline-none text-slate-900 font-medium" value={purchaseData.date} onChange={e => setPurchaseData({...purchaseData, date: e.target.value})} /><div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-sm">📅</div></div><input list="product-list" type="text" ref={productNameRef} placeholder="제품명 입력 (예: 헤모힘)" required autoComplete="off" className="w-full px-4 py-4 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-medium" /><datalist id="product-list">{productList.map((p) => (<option key={p.id} value={p.name} />))}</datalist></div>
-                <div className="flex gap-2 pt-1"><select className="flex-1 px-3 py-3 bg-white border border-emerald-200 rounded-xl text-sm outline-none text-slate-900 font-medium" value={purchaseData.duration} onChange={e => setPurchaseData({...purchaseData, duration: e.target.value})}><option value="15">15일분</option><option value="30">1개월 (30일)</option><option value="60">2개월 (60일)</option><option value="90">3개월 (90일)</option><option value="120">4개월 (120일)</option><option value="180">6개월 (180일)</option></select>{editingPurchaseId && <button type="button" onClick={() => {setEditingPurchaseId(null); setPurchaseData({date: today, duration: '30'}); if(productNameRef.current) productNameRef.current.value = '';}} className="flex-1 py-3 bg-white border border-slate-300 rounded-xl text-sm font-bold text-slate-700">취소</button>}<button type="submit" className="flex-1 py-3 bg-emerald-600 text-white rounded-xl text-sm font-bold shadow-sm">{editingPurchaseId ? '수정 완료' : '등록하기'}</button></div>
+                <div className="flex flex-col gap-2"><div className="relative"><input type="date" required className="w-full px-3 py-3 bg-white border border-emerald-200 rounded-xl text-sm outline-none text-slate-900 font-medium" value={purchaseData.date} onChange={e => setPurchaseData({...purchaseData, date: e.target.value})} /><div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-sm">📅</div></div><input list="product-list" type="text" ref={productNameRef} placeholder="제품명 입력 (예: 헤모힘)" required autoComplete="off" className="w-full px-4 py-4 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-medium" /><input type="text" inputMode="numeric" placeholder="가격 입력 (예: 35000)" className="w-full px-4 py-4 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-medium" value={purchaseData.price} onChange={e => setPurchaseData({...purchaseData, price: e.target.value.replace(/[^0-9,]/g, '')})} /><datalist id="product-list">{productList.map((p) => (<option key={p.id} value={p.name} />))}</datalist></div>
+                <div className="flex gap-2 pt-1"><select className="flex-1 px-3 py-3 bg-white border border-emerald-200 rounded-xl text-sm outline-none text-slate-900 font-medium" value={purchaseData.duration} onChange={e => setPurchaseData({...purchaseData, duration: e.target.value})}><option value="15">15일분</option><option value="30">1개월 (30일)</option><option value="60">2개월 (60일)</option><option value="90">3개월 (90일)</option><option value="120">4개월 (120일)</option><option value="180">6개월 (180일)</option></select>{editingPurchaseId && <button type="button" onClick={() => {setEditingPurchaseId(null); setPurchaseData({date: today, duration: '30', price: ''}); if(productNameRef.current) productNameRef.current.value = '';}} className="flex-1 py-3 bg-white border border-slate-300 rounded-xl text-sm font-bold text-slate-700">취소</button>}<button type="submit" className="flex-1 py-3 bg-emerald-600 text-white rounded-xl text-sm font-bold shadow-sm">{editingPurchaseId ? '수정 완료' : '등록하기'}</button></div>
               </form>
             </div>
             <div className="space-y-6 pb-10">
@@ -719,7 +721,7 @@ export default function Dashboard() {
                             <div className="flex gap-2"><button onClick={() => item.type === 'consultation' ? editConsultation(item) : editPurchase(item)} className="text-[11px] text-slate-400 font-bold">수정</button><button onClick={() => item.type === 'consultation' ? deleteConsultation(item.id) : deletePurchase(item.id)} className="text-[11px] text-slate-400 font-bold">삭제</button></div>
                           </div>
                           {item.type === 'consultation' ? (<><p className="text-slate-800 text-sm whitespace-pre-wrap leading-relaxed">{item.content}</p>{item.next_meeting_date && (<p className="mt-3 text-[11px] font-bold text-blue-600 bg-blue-50/50 inline-block px-2.5 py-1.5 rounded-lg">🗓️ 다음 미팅: {new Date(item.next_meeting_date).toLocaleDateString('ko-KR')}</p>)}</>) : (
-                            <div className="flex justify-between items-end gap-3 flex-nowrap"><div className="flex-1 min-w-0"><p className="text-slate-900 font-bold text-sm truncate">{item.product_name}</p><p className="text-[11px] text-slate-500 mt-1">종료 예정: {new Date(item.expiry_date).toLocaleDateString('ko-KR')}</p></div><span className="shrink-0 text-[11px] bg-white text-emerald-700 border border-emerald-100 px-2 py-1 rounded-lg font-bold whitespace-nowrap">{item.duration_days}일분</span></div>
+                            <div className="flex justify-between items-end gap-3 flex-nowrap"><div className="flex-1 min-w-0"><p className="text-slate-900 font-bold text-sm truncate">{item.product_name}</p><p className="text-[11px] text-slate-500 mt-1">종료 예정: {new Date(item.expiry_date).toLocaleDateString('ko-KR')}</p>{item.price != null && (<p className="text-[11px] text-slate-500 mt-1">가격: {item.price.toLocaleString('ko-KR')}원</p>)}</div><span className="shrink-0 text-[11px] bg-white text-emerald-700 border border-emerald-100 px-2 py-1 rounded-lg font-bold whitespace-nowrap">{item.duration_days}일분</span></div>
                           )}
                         </div>
                       ))}
