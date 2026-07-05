@@ -165,7 +165,7 @@ export default function Dashboard() {
         expiry_alert: data.expiry_alert ?? true,
         new_customer_alert: data.new_customer_alert ?? true,
         daily_push_enabled: data.daily_push_enabled ?? true,
-        daily_push_time: data.daily_push_time ?? '08:00',
+        daily_push_time: '08:00',
         push_subscription: data.push_subscription ?? null
       });
     }
@@ -189,7 +189,7 @@ export default function Dashboard() {
       expiry_alert: notificationSettings.expiry_alert,
       new_customer_alert: notificationSettings.new_customer_alert,
       daily_push_enabled: notificationSettings.daily_push_enabled,
-      daily_push_time: notificationSettings.daily_push_time,
+      daily_push_time: '08:00',
       push_subscription: notificationSettings.push_subscription,
       updated_at: new Date().toISOString()
     };
@@ -594,7 +594,7 @@ export default function Dashboard() {
 
             <div className="space-y-3">
               <label className="flex items-center justify-between bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3 cursor-pointer active:bg-blue-100">
-                <span className="text-blue-900 font-extrabold text-sm">매일 아침 푸시 받기</span>
+                <span className="text-blue-900 font-extrabold text-sm">매일 오전 8시 푸시 받기</span>
                 <input
                   type="checkbox"
                   checked={notificationSettings.daily_push_enabled}
@@ -603,18 +603,10 @@ export default function Dashboard() {
                 />
               </label>
 
-              <div className="space-y-1">
-                <label className="text-[11px] font-bold text-slate-500 ml-1">푸시 시간</label>
-                <select
-                  value={notificationSettings.daily_push_time}
-                  onChange={(e) => setNotificationSettings(prev => ({ ...prev, daily_push_time: e.target.value }))}
-                  className="w-full px-4 py-4 bg-white border border-slate-200 rounded-xl outline-none text-slate-900 font-bold"
-                >
-                  <option value="07:00">07:00</option>
-                  <option value="08:00">08:00</option>
-                  <option value="09:00">09:00</option>
-                  <option value="10:00">10:00</option>
-                </select>
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3">
+                <p className="text-[11px] font-bold text-slate-500 mb-1">푸시 시간</p>
+                <p className="text-slate-900 font-extrabold text-sm">매일 오전 8시</p>
+                <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">오늘 확인할 CRM이 있을 때만 푸시가 발송됩니다.</p>
               </div>
             </div>
 

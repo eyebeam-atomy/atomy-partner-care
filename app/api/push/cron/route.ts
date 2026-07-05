@@ -53,8 +53,9 @@ export async function GET(request: NextRequest) {
     }
 
     const { today, currentTime } = getKstParts();
-    const testTime = request.nextUrl.searchParams.get('time');
-    const targetTime = testTime || currentTime;
+    // Vercel Hobby 플랜에서는 Cron을 하루 1회만 실행할 수 있으므로
+    // Partner Care의 자동 푸시는 매일 오전 8시(KST) 1회로 고정합니다.
+    const targetTime = '08:00';
 
     webpush.setVapidDetails('mailto:admin@partner-care.local', publicKey, privateKey);
 
@@ -66,7 +67,6 @@ export async function GET(request: NextRequest) {
       .from('notification_settings')
       .select('*')
       .eq('daily_push_enabled', true)
-      .eq('daily_push_time', targetTime)
       .not('push_subscription', 'is', null);
 
     if (settingsError) throw settingsError;
