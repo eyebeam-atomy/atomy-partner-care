@@ -13,6 +13,8 @@ export default function Dashboard() {
   const [productList, setProductList] = useState<any[]>([]);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [searchType, setSearchType] = useState('name');
+  const [isAdvancedSearchOpen, setIsAdvancedSearchOpen] = useState(false);
+  const [advancedSearch, setAdvancedSearch] = useState({ name: '', product: '', consultation: '' });
   const [purchasedCustomerIds, setPurchasedCustomerIds] = useState<number[]>([]);
   const [consultedCustomerIds, setConsultedCustomerIds] = useState<number[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -376,27 +378,58 @@ export default function Dashboard() {
     if (receivableSummary.count === 0) setShowReceivableDetails(false);
   };
 
+  const hasAdvancedSearch = advancedSearch.name.trim() !== '' || advancedSearch.product.trim() !== '' || advancedSearch.consultation.trim() !== '';
+
   useEffect(() => {
     const fetchSearchResults = async () => {
-      if (searchKeyword.trim() === '') { setPurchasedCustomerIds([]); setConsultedCustomerIds([]); return; }
-      if (searchType === 'product') {
-        const { data } = await supabase.from('purchases').select('customer_id').ilike('product_name', `%${searchKeyword}%`);
-        if (data) setPurchasedCustomerIds(data.map(p => p.customer_id));
-      } else if (searchType === 'consultation') {
+      const productKeyword = isAdvancedSearchOpen && hasAdvancedSearch ? advancedSearch.product.trim() : (searchType === 'product' ? searchKeyword.trim() : '');
+      const consultationKeyword = isAdvancedSearchOpen && hasAdvancedSearch ? advancedSearch.consultation.trim() : (searchType === 'consultation' ? searchKeyword.trim() : '');
+
+      if (!productKeyword) {
+        setPurchasedCustomerIds([]);
+      } else {
+        const { data } = await supabase.from('purchases').select('customer_id').ilike('product_name', `%${productKeyword}%`);
+        if (data) setPurchasedCustomerIds(Array.from(new Set(data.map((p: any) => p.customer_id))));
+      }
+
+      if (!consultationKeyword) {
+        setConsultedCustomerIds([]);
+      } else {
         const cIds = customers.map(c => c.id);
+        if (cIds.length === 0) {
+          setConsultedCustomerIds([]);
+          return;
+        }
         const { data } = await supabase.from('consultations').select('customer_id, content').in('customer_id', cIds);
         if (data) {
-          const matchedIds = data.filter(item => decrypt(item.content).includes(searchKeyword)).map(item => item.customer_id);
-          setConsultedCustomerIds([...new Set(matchedIds)]);
+          const matchedIds = data.filter(item => decrypt(item.content).includes(consultationKeyword)).map(item => item.customer_id);
+          setConsultedCustomerIds(Array.from(new Set(matchedIds)));
         }
       }
     };
     fetchSearchResults();
-  }, [searchKeyword, searchType, customers]);
+  }, [searchKeyword, searchType, customers, isAdvancedSearchOpen, advancedSearch, hasAdvancedSearch]);
+
+  const resetAdvancedSearch = () => {
+    setAdvancedSearch({ name: '', product: '', consultation: '' });
+    setPurchasedCustomerIds([]);
+    setConsultedCustomerIds([]);
+  };
 
   const filteredCustomers = customers.filter(c => {
+    if (isAdvancedSearchOpen && hasAdvancedSearch) {
+      const nameKeyword = advancedSearch.name.trim();
+      const productKeyword = advancedSearch.product.trim();
+      const consultationKeyword = advancedSearch.consultation.trim();
+
+      if (nameKeyword && !c.name.includes(nameKeyword)) return false;
+      if (productKeyword && !purchasedCustomerIds.includes(c.id)) return false;
+      if (consultationKeyword && !consultedCustomerIds.includes(c.id)) return false;
+      return true;
+    }
+
     if (searchKeyword.trim() === '') return true;
-    if (searchType === 'name') return c.name.includes(searchKeyword);
+    if (searchType === 'name') return c.name.includes(searchKeyword.trim());
     if (searchType === 'product') return purchasedCustomerIds.includes(c.id);
     if (searchType === 'consultation') return consultedCustomerIds.includes(c.id);
     return true;
@@ -681,10 +714,59 @@ export default function Dashboard() {
           <div className="mb-6 space-y-3 shrink-0">
             <button onClick={openAddCustomer} className="w-full bg-slate-800 text-white py-4 rounded-2xl font-bold shadow-lg active:scale-95 transition-transform text-lg">+ 새 소비자 등록</button>
             <div className="flex gap-2">
-              <select className="px-3 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-900 outline-none shrink-0" value={searchType} onChange={(e) => { setSearchType(e.target.value); setSearchKeyword(''); }}>
+              <select className="px-3 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-900 outline-none shrink-0" value={searchType} onChange={(e) => { setSearchType(e.target.value); setSearchKeyword(''); }} disabled={isAdvancedSearchOpen && hasAdvancedSearch}>
                 <option value="name">이름</option><option value="product">제품</option><option value="consultation">상담 내용</option>
               </select>
-              <input type="text" placeholder="검색어 입력" className="flex-1 px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-500 font-medium outline-none" value={searchKeyword} onChange={(e) => setSearchKeyword(e.target.value)} />
+              <input type="text" placeholder="검색어 입력" className="flex-1 px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-500 font-medium outline-none disabled:bg-slate-100 disabled:text-slate-400" value={searchKeyword} onChange={(e) => setSearchKeyword(e.target.value)} disabled={isAdvancedSearchOpen && hasAdvancedSearch} />
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setIsAdvancedSearchOpen(prev => !prev)}
+                className="w-full px-4 py-3 flex items-center justify-between text-sm font-extrabold text-slate-800 active:bg-slate-50"
+              >
+                <span>상세검색</span>
+                <span className="text-slate-400">{isAdvancedSearchOpen ? '접기 ▲' : '열기 ▼'}</span>
+              </button>
+
+              {isAdvancedSearchOpen && (
+                <div className="px-4 pb-4 space-y-3 border-t border-slate-100">
+                  <div className="grid grid-cols-1 gap-2 pt-4">
+                    <input
+                      type="text"
+                      placeholder="소비자 이름"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-500 font-medium outline-none"
+                      value={advancedSearch.name}
+                      onChange={(e) => setAdvancedSearch(prev => ({ ...prev, name: e.target.value }))}
+                    />
+                    <input
+                      type="text"
+                      placeholder="구매 제품명"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-500 font-medium outline-none"
+                      value={advancedSearch.product}
+                      onChange={(e) => setAdvancedSearch(prev => ({ ...prev, product: e.target.value }))}
+                    />
+                    <input
+                      type="text"
+                      placeholder="상담 내용"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-500 font-medium outline-none"
+                      value={advancedSearch.consultation}
+                      onChange={(e) => setAdvancedSearch(prev => ({ ...prev, consultation: e.target.value }))}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[11px] text-slate-500 font-medium">입력한 조건을 모두 만족하는 소비자만 보여줍니다.</p>
+                    <button
+                      type="button"
+                      onClick={resetAdvancedSearch}
+                      className="px-3 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-extrabold active:bg-slate-200 shrink-0"
+                    >
+                      초기화
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
