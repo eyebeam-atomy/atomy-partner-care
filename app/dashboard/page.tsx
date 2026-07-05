@@ -47,8 +47,7 @@ export default function Dashboard() {
   const [editingConsultationId, setEditingConsultationId] = useState<number | null>(null);
   const [consultationData, setConsultationData] = useState({ date: today, content: '', next_meeting_date: '' });
   const [editingPurchaseId, setEditingPurchaseId] = useState<number | null>(null);
-  const [purchaseData, setPurchaseData] = useState({ date: today, duration: '30', price: '' });
-  const productNameRef = useRef<HTMLInputElement>(null);
+  const [purchaseData, setPurchaseData] = useState({ date: today, duration: '30', price: '', payment_status: 'unpaid', product_name: '' });
   const [crmAlerts, setCrmAlerts] = useState<any[]>([]);
   const [showCrmPopup, setShowCrmPopup] = useState(false);
   const [hasReadTodayNotifications, setHasReadTodayNotifications] = useState(false);
@@ -56,6 +55,8 @@ export default function Dashboard() {
   const [alertModal, setAlertModal] = useState({ isOpen: false, title: '', message: '' });
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', confirmText: '삭제', onConfirm: () => {} });
   const [monthlyStats, setMonthlyStats] = useState({ newCustomers: 0, consultations: 0, purchases: 0 });
+  const [receivableSummary, setReceivableSummary] = useState({ totalAmount: 0, count: 0, items: [] as any[] });
+  const [showReceivableDetails, setShowReceivableDetails] = useState(false);
   const modalScrollRef = useRef<HTMLDivElement>(null);
 
   const showAlert = (title: string, message: string) => { setAlertModal({ isOpen: true, title, message }); };
@@ -289,7 +290,90 @@ export default function Dashboard() {
       }));
       setCustomers(decryptedData);
       checkCrmAlertsAndStats(decryptedData);
+      fetchReceivableSummary(decryptedData);
     }
+  };
+
+  const fetchReceivableSummary = async (customersData: any[]) => {
+    if (!customersData.length) {
+      setReceivableSummary({ totalAmount: 0, count: 0, items: [] });
+      return;
+    }
+
+    const customerIds = customersData.map(c => c.id);
+    const { data, error } = await supabase
+      .from('purchases')
+      .select('*')
+      .in('customer_id', customerIds)
+      .eq('payment_status', 'unpaid')
+      .not('price', 'is', null)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('미수금 조회 실패:', error);
+      setReceivableSummary({ totalAmount: 0, count: 0, items: [] });
+      return;
+    }
+
+    const items = (data || []).map(item => {
+      const customer = customersData.find(c => c.id === item.customer_id);
+      return {
+        ...item,
+        customer_name: customer?.name || '이름 없음',
+        customer_phone: customer?.phone || ''
+      };
+    });
+
+    setReceivableSummary({
+      totalAmount: items.reduce((sum, item) => sum + (item.price || 0), 0),
+      count: items.length,
+      items
+    });
+  };
+
+  const markPurchaseAsPaid = async (purchaseId: number) => {
+    const { error } = await supabase
+      .from('purchases')
+      .update({ payment_status: 'paid', paid_at: new Date().toISOString() })
+      .eq('id', purchaseId);
+
+    if (error) return showAlert('처리 실패', error.message);
+    showAlert('입금 완료', '입금완료로 변경되었습니다.');
+    fetchCustomers();
+    fetchHistory();
+  };
+
+  const confirmMarkPurchaseAsPaid = (purchaseId: number) => {
+    showConfirm(
+      '입금완료 처리',
+      '입금완료로 변경하시겠습니까?',
+      () => markPurchaseAsPaid(purchaseId),
+      '입금완료'
+    );
+  };
+
+  const receivableGroups = receivableSummary.items.reduce((groups: any[], item: any) => {
+    const groupKey = item.customer_id;
+    let group = groups.find(g => g.customer_id === groupKey);
+
+    if (!group) {
+      group = {
+        customer_id: item.customer_id,
+        customer_name: item.customer_name,
+        customer_phone: item.customer_phone,
+        totalAmount: 0,
+        items: [] as any[]
+      };
+      groups.push(group);
+    }
+
+    group.totalAmount += item.price || 0;
+    group.items.push(item);
+    return groups;
+  }, []);
+
+  const closeReceivableDetailsIfEmpty = () => {
+    if (receivableSummary.count === 0) setShowReceivableDetails(false);
   };
 
   useEffect(() => {
@@ -353,8 +437,7 @@ export default function Dashboard() {
     setEditingConsultationId(null);
     setConsultationData({ date: today, content: '', next_meeting_date: '' });
     setEditingPurchaseId(null);
-    setPurchaseData({ date: today, duration: '30', price: '' });
-    if (productNameRef.current) productNameRef.current.value = '';
+    setPurchaseData({ date: today, duration: '30', price: '', payment_status: 'unpaid', product_name: '' });
   };
 
   const fetchHistory = async () => {
@@ -400,24 +483,31 @@ export default function Dashboard() {
     const pDate = new Date(purchaseData.date);
     const expiryDate = new Date(pDate);
     expiryDate.setDate(pDate.getDate() + parseInt(purchaseData.duration));
-    const productName = productNameRef.current?.value || '';
+    const productName = purchaseData.product_name.trim();
     if (!productName) return showAlert("입력 확인", "제품명을 입력해주세요.");
     const price = purchaseData.price ? parseInt(purchaseData.price.replace(/,/g, ''), 10) : null;
     if (purchaseData.price && Number.isNaN(price)) return showAlert("입력 확인", "가격은 숫자로 입력해주세요.");
-    const payload = { customer_id: selectedCustomer.id, product_name: productName, duration_days: parseInt(purchaseData.duration), price, created_at: pDate.toISOString(), expiry_date: expiryDate.toISOString() };
+    const payload = {
+      customer_id: selectedCustomer.id,
+      product_name: productName,
+      duration_days: parseInt(purchaseData.duration),
+      price,
+      payment_status: purchaseData.payment_status,
+      paid_at: purchaseData.payment_status === 'paid' ? new Date().toISOString() : null,
+      created_at: pDate.toISOString(),
+      expiry_date: expiryDate.toISOString()
+    };
     if (editingPurchaseId) await supabase.from('purchases').update(payload).eq('id', editingPurchaseId);
     else await supabase.from('purchases').insert([payload]);
-    setPurchaseData({ date: today, duration: '30', price: '' });
-    if (productNameRef.current) productNameRef.current.value = '';
+    setPurchaseData({ date: today, duration: '30', price: '', payment_status: 'unpaid', product_name: '' });
     setEditingPurchaseId(null);
-    fetchHistory(); fetchCustomers(); scrollToTop();
+    await fetchHistory();
+    fetchCustomers();
   };
 
   const editPurchase = (item: any) => {
     setEditingPurchaseId(item.id);
-    setPurchaseData({ date: new Date(item.created_at).toISOString().split('T')[0], duration: item.duration_days.toString(), price: item.price ? item.price.toLocaleString('ko-KR') : '' });
-    if (productNameRef.current) productNameRef.current.value = item.product_name;
-    scrollToTop();
+    setPurchaseData({ date: new Date(item.created_at).toISOString().split('T')[0], duration: item.duration_days.toString(), price: item.price ? item.price.toLocaleString('ko-KR') : '', payment_status: item.payment_status || 'unpaid', product_name: item.product_name || '' });
   };
 
   const deletePurchase = (id: number) => { showConfirm("삭제", "구매 이력을 삭제하시겠습니까?", async () => { await supabase.from('purchases').delete().eq('id', id); fetchHistory(); fetchCustomers(); }); };
@@ -527,6 +617,67 @@ export default function Dashboard() {
             </div>
           </div>
 
+          {receivableSummary.count > 0 && (
+            <div className="mb-6 bg-red-50 border border-red-100 rounded-2xl p-4 shadow-sm">
+              <button
+                type="button"
+                onClick={() => setShowReceivableDetails(prev => !prev)}
+                className="w-full flex items-center justify-between text-left active:scale-[0.99] transition-transform"
+                aria-expanded={showReceivableDetails}
+              >
+                <div>
+                  <p className="text-[11px] font-bold text-red-500 mb-1">받아야 할 돈</p>
+                  <p className="text-2xl font-extrabold text-red-600">{receivableSummary.totalAmount.toLocaleString('ko-KR')}원</p>
+                  <p className="text-[11px] font-bold text-red-400 mt-1">클릭하면 소비자별 미수금을 확인할 수 있습니다.</p>
+                </div>
+                <div className="flex flex-col items-end gap-2 shrink-0">
+                  <span className="bg-white text-red-600 border border-red-100 text-xs font-extrabold px-3 py-2 rounded-full">{receivableSummary.count}건</span>
+                  <span className="text-red-500 text-lg font-extrabold">{showReceivableDetails ? '접기 ▲' : '보기 ▼'}</span>
+                </div>
+              </button>
+
+              {showReceivableDetails && (
+                <div className="mt-4 space-y-3 max-h-80 overflow-y-auto pr-1">
+                  {receivableGroups.map((group: any) => (
+                    <div key={group.customer_id} className="bg-white rounded-2xl p-3 border border-red-100">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-extrabold text-slate-900 truncate">{group.customer_name}</p>
+                          {group.customer_phone && <p className="text-[11px] text-slate-500 mt-0.5">{group.customer_phone}</p>}
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-sm font-extrabold text-red-600">{group.totalAmount.toLocaleString('ko-KR')}원</p>
+                          <p className="text-[10px] font-bold text-red-400">{group.items.length}건</p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        {group.items.map((item: any) => (
+                          <div key={item.id} className="bg-red-50/70 rounded-xl px-3 py-2 border border-red-100 flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold text-slate-900 truncate">{item.product_name}</p>
+                              <p className="text-[10px] text-slate-500 mt-0.5">{new Date(item.created_at).toLocaleDateString('ko-KR')}</p>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <p className="text-xs font-extrabold text-red-600 mb-1">{item.price.toLocaleString('ko-KR')}원</p>
+                              <button
+                                type="button"
+                                onClick={() => confirmMarkPurchaseAsPaid(item.id)}
+                                className="bg-blue-600 text-white text-[10px] font-extrabold px-3 py-1.5 rounded-full shadow-sm active:scale-95 transition-transform"
+                              >
+                                입금완료 처리
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="mb-6 space-y-3 shrink-0">
             <button onClick={openAddCustomer} className="w-full bg-slate-800 text-white py-4 rounded-2xl font-bold shadow-lg active:scale-95 transition-transform text-lg">+ 새 소비자 등록</button>
             <div className="flex gap-2">
@@ -564,8 +715,8 @@ export default function Dashboard() {
 
 
       {isNotificationModalOpen && (
-        <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center p-0 sm:p-4 z-[115]">
-          <div className="bg-white w-full max-w-md rounded-t-[2rem] sm:rounded-[2.5rem] p-6 pt-8 pb-8 shadow-2xl relative">
+        <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center p-4 z-[115]">
+          <div className="bg-white w-full max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-[2rem] sm:rounded-[2.5rem] p-6 pt-8 pb-[calc(2rem+env(safe-area-inset-bottom))] shadow-2xl relative">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-2xl font-bold text-slate-900">알림 설정</h2>
               <button onClick={() => setIsNotificationModalOpen(false)} className="px-3 py-1.5 bg-slate-200 rounded-full text-sm font-bold text-slate-800 active:bg-slate-300">닫기</button>
@@ -700,11 +851,11 @@ export default function Dashboard() {
                 </div>
                 <div className="flex gap-2 pt-1">{editingConsultationId && <button type="button" onClick={() => {setEditingConsultationId(null); setConsultationData({date: today, content: '', next_meeting_date: ''});}} className="flex-1 py-3 bg-white border border-slate-300 rounded-xl text-sm font-bold text-slate-700">취소</button>}<button onClick={() => handleConsultationSubmit()} className="flex-1 py-3 bg-blue-600 text-white rounded-xl text-sm font-bold shadow-sm">{editingConsultationId ? '수정 완료' : '등록하기'}</button></div>
               </div>
-              <form onSubmit={handlePurchaseSubmit} className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 space-y-3">
-                <h3 className="font-bold text-emerald-900 text-sm">{editingPurchaseId ? '✏️ 구매 수정' : '🛒 구매 기록'}</h3>
-                <div className="flex flex-col gap-2"><div className="relative"><input type="date" required className="w-full px-3 py-3 bg-white border border-emerald-200 rounded-xl text-sm outline-none text-slate-900 font-medium" value={purchaseData.date} onChange={e => setPurchaseData({...purchaseData, date: e.target.value})} /><div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-sm">📅</div></div><input list="product-list" type="text" ref={productNameRef} placeholder="제품명 입력 (예: 헤모힘)" required autoComplete="off" className="w-full px-4 py-4 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-medium" /><input type="text" inputMode="numeric" placeholder="가격 입력 (예: 35000)" className="w-full px-4 py-4 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-medium" value={purchaseData.price} onChange={e => setPurchaseData({...purchaseData, price: e.target.value.replace(/[^0-9,]/g, '')})} /><datalist id="product-list">{productList.map((p) => (<option key={p.id} value={p.name} />))}</datalist></div>
-                <div className="flex gap-2 pt-1"><select className="flex-1 px-3 py-3 bg-white border border-emerald-200 rounded-xl text-sm outline-none text-slate-900 font-medium" value={purchaseData.duration} onChange={e => setPurchaseData({...purchaseData, duration: e.target.value})}><option value="15">15일분</option><option value="30">1개월 (30일)</option><option value="60">2개월 (60일)</option><option value="90">3개월 (90일)</option><option value="120">4개월 (120일)</option><option value="180">6개월 (180일)</option></select>{editingPurchaseId && <button type="button" onClick={() => {setEditingPurchaseId(null); setPurchaseData({date: today, duration: '30', price: ''}); if(productNameRef.current) productNameRef.current.value = '';}} className="flex-1 py-3 bg-white border border-slate-300 rounded-xl text-sm font-bold text-slate-700">취소</button>}<button type="submit" className="flex-1 py-3 bg-emerald-600 text-white rounded-xl text-sm font-bold shadow-sm">{editingPurchaseId ? '수정 완료' : '등록하기'}</button></div>
-              </form>
+              {!editingPurchaseId && (<form onSubmit={handlePurchaseSubmit} className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100 space-y-3">
+                <h3 className="font-bold text-emerald-900 text-sm">🛒 구매 기록</h3>
+                <div className="flex flex-col gap-2"><div className="relative"><input type="date" required className="w-full px-3 py-3 bg-white border border-emerald-200 rounded-xl text-sm outline-none text-slate-900 font-medium" value={purchaseData.date} onChange={e => setPurchaseData({...purchaseData, date: e.target.value})} /><div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-sm">📅</div></div><input list="product-list" type="text" placeholder="제품명 입력 (예: 헤모힘)" required autoComplete="off" className="w-full px-4 py-4 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-medium" value={purchaseData.product_name} onChange={e => setPurchaseData({...purchaseData, product_name: e.target.value})} /><input type="text" inputMode="numeric" placeholder="가격 입력 (예: 35000)" className="w-full px-4 py-4 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-medium" value={purchaseData.price} onChange={e => setPurchaseData({...purchaseData, price: e.target.value.replace(/[^0-9,]/g, '')})} /><select className="w-full px-4 py-4 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-bold" value={purchaseData.payment_status} onChange={e => setPurchaseData({...purchaseData, payment_status: e.target.value})}><option value="unpaid">⏳ 미수금</option><option value="paid">✅ 입금완료</option></select><datalist id="product-list">{productList.map((p) => (<option key={p.id} value={p.name} />))}</datalist></div>
+                <div className="flex gap-2 pt-1"><select className="flex-1 px-3 py-3 bg-white border border-emerald-200 rounded-xl text-sm outline-none text-slate-900 font-medium" value={purchaseData.duration} onChange={e => setPurchaseData({...purchaseData, duration: e.target.value})}><option value="15">15일분</option><option value="30">1개월 (30일)</option><option value="60">2개월 (60일)</option><option value="90">3개월 (90일)</option><option value="120">4개월 (120일)</option><option value="180">6개월 (180일)</option></select><button type="submit" className="flex-1 py-3 bg-emerald-600 text-white rounded-xl text-sm font-bold shadow-sm">등록하기</button></div>
+              </form>)}
             </div>
             <div className="space-y-6 pb-10">
               <h4 className="font-bold text-slate-700 text-sm flex items-center gap-1">📜 통합 활동 이력</h4>
@@ -721,7 +872,20 @@ export default function Dashboard() {
                             <div className="flex gap-2"><button onClick={() => item.type === 'consultation' ? editConsultation(item) : editPurchase(item)} className="text-[11px] text-slate-400 font-bold">수정</button><button onClick={() => item.type === 'consultation' ? deleteConsultation(item.id) : deletePurchase(item.id)} className="text-[11px] text-slate-400 font-bold">삭제</button></div>
                           </div>
                           {item.type === 'consultation' ? (<><p className="text-slate-800 text-sm whitespace-pre-wrap leading-relaxed">{item.content}</p>{item.next_meeting_date && (<p className="mt-3 text-[11px] font-bold text-blue-600 bg-blue-50/50 inline-block px-2.5 py-1.5 rounded-lg">🗓️ 다음 미팅: {new Date(item.next_meeting_date).toLocaleDateString('ko-KR')}</p>)}</>) : (
-                            <div className="flex justify-between items-end gap-3 flex-nowrap"><div className="flex-1 min-w-0"><p className="text-slate-900 font-bold text-sm truncate">{item.product_name}</p><p className="text-[11px] text-slate-500 mt-1">종료 예정: {new Date(item.expiry_date).toLocaleDateString('ko-KR')}</p>{item.price != null && (<p className="text-[11px] text-slate-500 mt-1">가격: {item.price.toLocaleString('ko-KR')}원</p>)}</div><span className="shrink-0 text-[11px] bg-white text-emerald-700 border border-emerald-100 px-2 py-1 rounded-lg font-bold whitespace-nowrap">{item.duration_days}일분</span></div>
+                            editingPurchaseId === item.id ? (
+                              <form onSubmit={handlePurchaseSubmit} className="bg-emerald-50 p-3 rounded-xl border border-emerald-100 space-y-2">
+                                <p className="font-bold text-emerald-900 text-xs">✏️ 이 구매이력 수정</p>
+                                <div className="flex flex-col gap-2">
+                                  <input type="date" required className="w-full px-3 py-3 bg-white border border-emerald-200 rounded-xl text-sm outline-none text-slate-900 font-medium" value={purchaseData.date} onChange={e => setPurchaseData({...purchaseData, date: e.target.value})} />
+                                  <input list="product-list" type="text" placeholder="제품명 입력 (예: 헤모힘)" required autoComplete="off" className="w-full px-4 py-4 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-medium" value={purchaseData.product_name} onChange={e => setPurchaseData({...purchaseData, product_name: e.target.value})} />
+                                  <input type="text" inputMode="numeric" placeholder="가격 입력 (예: 35000)" className="w-full px-4 py-4 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-medium" value={purchaseData.price} onChange={e => setPurchaseData({...purchaseData, price: e.target.value.replace(/[^0-9,]/g, '')})} />
+                                  <select className="w-full px-4 py-4 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-bold" value={purchaseData.payment_status} onChange={e => setPurchaseData({...purchaseData, payment_status: e.target.value})}><option value="unpaid">⏳ 미수금</option><option value="paid">✅ 입금완료</option></select>
+                                </div>
+                                <div className="flex gap-2 pt-1"><select className="flex-1 px-3 py-3 bg-white border border-emerald-200 rounded-xl text-sm outline-none text-slate-900 font-medium" value={purchaseData.duration} onChange={e => setPurchaseData({...purchaseData, duration: e.target.value})}><option value="15">15일분</option><option value="30">1개월 (30일)</option><option value="60">2개월 (60일)</option><option value="90">3개월 (90일)</option><option value="120">4개월 (120일)</option><option value="180">6개월 (180일)</option></select><button type="button" onClick={() => {setEditingPurchaseId(null); setPurchaseData({date: today, duration: '30', price: '', payment_status: 'unpaid', product_name: ''});}} className="flex-1 py-3 bg-white border border-slate-300 rounded-xl text-sm font-bold text-slate-700">취소</button><button type="submit" className="flex-1 py-3 bg-emerald-600 text-white rounded-xl text-sm font-bold shadow-sm">수정 완료</button></div>
+                              </form>
+                            ) : (
+                              <div className="flex justify-between items-end gap-3 flex-nowrap"><div className="flex-1 min-w-0"><p className="text-slate-900 font-bold text-sm truncate">{item.product_name}</p><p className="text-[11px] text-slate-500 mt-1">종료 예정: {new Date(item.expiry_date).toLocaleDateString('ko-KR')}</p>{item.price != null && (<p className="text-[11px] text-slate-500 mt-1">가격: {item.price.toLocaleString('ko-KR')}원</p>)}<p className={`text-[11px] font-bold mt-1 ${item.payment_status === 'paid' ? 'text-blue-600' : 'text-red-500'}`}>{item.payment_status === 'paid' ? '✅ 입금완료' : '⏳ 미수금'}</p>{item.payment_status === 'paid' && item.paid_at && (<p className="text-[10px] text-slate-400 mt-0.5">처리일: {new Date(item.paid_at).toLocaleDateString('ko-KR')}</p>)}{item.payment_status !== 'paid' && item.price != null && (<button type="button" onClick={() => confirmMarkPurchaseAsPaid(item.id)} className="mt-2 bg-blue-600 text-white border border-blue-600 px-3 py-2 rounded-xl font-extrabold text-[11px] shadow-sm active:scale-95 transition-transform">💰 입금완료 처리</button>)}</div><span className="shrink-0 text-[11px] bg-white text-emerald-700 border border-emerald-100 px-2 py-1 rounded-lg font-bold whitespace-nowrap">{item.duration_days}일분</span></div>
+                            )
                           )}
                         </div>
                       ))}
