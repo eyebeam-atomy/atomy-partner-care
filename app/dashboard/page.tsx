@@ -3,6 +3,7 @@ import { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { encrypt, decrypt } from '@/lib/crypto';
 import { useRouter } from 'next/navigation';
+import { buildCrmAlertsAndStats } from '@/lib/notificationLogic';
 
 export default function Dashboard() {
   const router = useRouter();
@@ -21,6 +22,19 @@ export default function Dashboard() {
   const [isPwdModalOpen, setIsPwdModalOpen] = useState(false);
   const [newPwd, setNewPwd] = useState('');
   const [confirmPwd, setConfirmPwd] = useState('');
+  const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
+  const [isSavingNotification, setIsSavingNotification] = useState(false);
+  const [notificationSettings, setNotificationSettings] = useState({
+    birthday_alert: true,
+    meeting_alert: true,
+    consultation_alert: true,
+    purchase_alert: true,
+    expiry_alert: true,
+    new_customer_alert: true,
+    daily_push_enabled: true,
+    daily_push_time: '08:00',
+    push_subscription: null as any
+  });
 
   const getKSTDate = () => {
     const now = new Date();
@@ -37,6 +51,7 @@ export default function Dashboard() {
   const productNameRef = useRef<HTMLInputElement>(null);
   const [crmAlerts, setCrmAlerts] = useState<any[]>([]);
   const [showCrmPopup, setShowCrmPopup] = useState(false);
+  const [hasReadTodayNotifications, setHasReadTodayNotifications] = useState(false);
   const hasAutoShownCrm = useRef(false);
   const [alertModal, setAlertModal] = useState({ isOpen: false, title: '', message: '' });
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: () => {} });
@@ -109,7 +124,12 @@ export default function Dashboard() {
     fetchProducts();
   }, [router]);
 
-  useEffect(() => { if (currentUser) fetchCustomers(); }, [currentUser]);
+  useEffect(() => {
+    if (currentUser) {
+      fetchCustomers();
+      fetchNotificationSettings();
+    }
+  }, [currentUser]);
 
   const handleChangePassword = async () => {
     if (newPwd.length < 8) return showAlert("입력 오류", "비밀번호는 8자리 이상이어야 합니다.");
@@ -122,63 +142,136 @@ export default function Dashboard() {
     }
   };
 
+  const fetchNotificationSettings = async () => {
+    if (!currentUser?.id) return;
+
+    const { data, error } = await supabase
+      .from('notification_settings')
+      .select('*')
+      .eq('partner_id', currentUser.id)
+      .maybeSingle();
+
+    if (error) {
+      console.error('알림 설정 조회 실패:', error);
+      return;
+    }
+
+    if (data) {
+      setNotificationSettings({
+        birthday_alert: data.birthday_alert ?? true,
+        meeting_alert: data.meeting_alert ?? true,
+        consultation_alert: data.consultation_alert ?? true,
+        purchase_alert: data.purchase_alert ?? true,
+        expiry_alert: data.expiry_alert ?? true,
+        new_customer_alert: data.new_customer_alert ?? true,
+        daily_push_enabled: data.daily_push_enabled ?? true,
+        daily_push_time: data.daily_push_time ?? '08:00',
+        push_subscription: data.push_subscription ?? null
+      });
+    }
+  };
+
+  const toggleNotificationSetting = (key: keyof typeof notificationSettings) => {
+    setNotificationSettings(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const handleSaveNotificationSettings = async () => {
+    if (!currentUser?.id) return showAlert('저장 실패', '로그인 정보를 확인할 수 없습니다.');
+
+    setIsSavingNotification(true);
+
+    const payload = {
+      partner_id: currentUser.id,
+      birthday_alert: notificationSettings.birthday_alert,
+      meeting_alert: notificationSettings.meeting_alert,
+      consultation_alert: notificationSettings.consultation_alert,
+      purchase_alert: notificationSettings.purchase_alert,
+      expiry_alert: notificationSettings.expiry_alert,
+      new_customer_alert: notificationSettings.new_customer_alert,
+      daily_push_enabled: notificationSettings.daily_push_enabled,
+      daily_push_time: notificationSettings.daily_push_time,
+      push_subscription: notificationSettings.push_subscription,
+      updated_at: new Date().toISOString()
+    };
+
+    const { error } = await supabase
+      .from('notification_settings')
+      .upsert(payload, { onConflict: 'partner_id' });
+
+    setIsSavingNotification(false);
+
+    if (error) {
+      console.error('알림 설정 저장 실패:', error);
+      return showAlert('저장 실패', error.message);
+    }
+
+    setIsNotificationModalOpen(false);
+    showAlert('저장 완료', '알림 설정이 저장되었습니다.');
+  };
+
+  const fetchTodayNotificationReadStatus = async () => {
+    if (!currentUser?.id) return false;
+
+    const { data, error } = await supabase
+      .from('notification_reads')
+      .select('partner_id')
+      .eq('partner_id', currentUser.id)
+      .eq('read_date', today)
+      .maybeSingle();
+
+    if (error) {
+      console.error('종 알림 읽음 조회 실패:', error);
+      return false;
+    }
+
+    const isRead = !!data;
+    setHasReadTodayNotifications(isRead);
+    return isRead;
+  };
+
+  const markTodayNotificationsAsRead = async () => {
+    if (!currentUser?.id) return;
+
+    setHasReadTodayNotifications(true);
+
+    const { error } = await supabase
+      .from('notification_reads')
+      .upsert(
+        {
+          partner_id: currentUser.id,
+          read_date: today,
+          read_at: new Date().toISOString()
+        },
+        { onConflict: 'partner_id,read_date' }
+      );
+
+    if (error) {
+      console.error('종 알림 읽음 저장 실패:', error);
+      setHasReadTodayNotifications(false);
+    }
+  };
+
+  const openCrmPopup = async () => {
+    if (crmAlerts.length === 0) return;
+    setShowCrmPopup(true);
+    await markTodayNotificationsAsRead();
+  };
+
   const checkCrmAlertsAndStats = async (customersData: any[]) => {
     setCrmAlerts([]);
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const sevenDaysAgo = new Date(now); sevenDaysAgo.setDate(now.getDate() - 7);
-    const thirtyDaysAgo = new Date(now); thirtyDaysAgo.setDate(now.getDate() - 30);
-    const sevenDaysLater = new Date(now); sevenDaysLater.setDate(now.getDate() + 7);
-    const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const newCustCount = customersData.filter(c => new Date(c.created_at) >= firstDayOfMonth).length;
-    let alerts: any[] = [];
-    if (customersData.length === 0) {
-       setMonthlyStats({ newCustomers: 0, consultations: 0, purchases: 0 });
-       if (!hasAutoShownCrm.current) { hasAutoShownCrm.current = true; }
-       return;
-    }
-    const cIds = customersData.map(c => c.id);
-    const { data: cons } = await supabase.from('consultations').select('customer_id, created_at, next_meeting_date').in('customer_id', cIds);
-    const { data: purs } = await supabase.from('purchases').select('customer_id, created_at, expiry_date, product_name').in('customer_id', cIds);
-    const consCount = cons?.filter(c => new Date(c.created_at) >= firstDayOfMonth).length || 0;
-    const pursCount = purs?.filter(p => new Date(p.created_at).getTime() >= firstDayOfMonth.getTime()).length || 0;
-    setMonthlyStats({ newCustomers: newCustCount, consultations: consCount, purchases: pursCount });
 
-    customersData.forEach(customer => {
-      const custCons = cons?.filter(c => c.customer_id === customer.id).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()) || [];
-      const custPurs = purs?.filter(p => p.customer_id === customer.id).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()) || [];
-      let alertReasons: string[] = [];
-      let isHighPriority = false;
-      if (customer.birthday) {
-        const bday = new Date(customer.birthday);
-        const thisYearBday = new Date(now.getFullYear(), bday.getMonth(), bday.getDate());
-        const diffDays = Math.ceil((thisYearBday.getTime() - todayStart.getTime()) / (1000 * 60 * 60 * 24));
-        if (diffDays === 0) { alertReasons.push('🎂 오늘 생일입니다! (D-Day)'); isHighPriority = true; }
-        else if (diffDays > 0 && diffDays <= 3) alertReasons.push(`🎂 생일 ${diffDays}일 전입니다!`);
-      }
-      const upcomingMeetings = custCons.filter(c => c.next_meeting_date).map(c => new Date(c.next_meeting_date)).filter(d => d >= todayStart);
-      if (upcomingMeetings.length > 0) {
-        upcomingMeetings.sort((a, b) => a.getTime() - b.getTime());
-        const nextMeeting = upcomingMeetings[0];
-        const diffDays = Math.ceil((nextMeeting.getTime() - todayStart.getTime()) / (1000 * 60 * 60 * 24));
-        if (diffDays === 0) { alertReasons.push('🗓️ 오늘 미팅이 예정되어 있습니다!'); isHighPriority = true; }
-        else if (diffDays > 0 && diffDays <= 3) { alertReasons.push(`🗓️ 다음 미팅 D-${diffDays}일 전입니다!`); isHighPriority = true; }
-      }
-      const lastConsDate = custCons.length > 0 ? new Date(custCons[0].created_at) : new Date(customer.created_at);
-      if (lastConsDate < sevenDaysAgo) alertReasons.push('💬 상담 7일 경과');
-      const expiringProducts = custPurs.filter(p => {
-        const expDate = new Date(p.expiry_date);
-        return expDate <= sevenDaysLater && expDate >= thirtyDaysAgo;
-      });
-      if (expiringProducts.length > 0) { alertReasons.push(`⏰ ${expiringProducts[0].product_name} 만료 임박`); isHighPriority = true; }
-      const lastPurDate = custPurs.length > 0 ? new Date(custPurs[0].created_at) : new Date(customer.created_at);
-      if (lastPurDate < thirtyDaysAgo) alertReasons.push('🛒 구매 1개월 미진행');
-      if (alertReasons.length > 0) alerts.push({ ...customer, reasons: alertReasons, priority: isHighPriority ? 5 : 1 });
-    });
-    alerts.sort((a, b) => b.priority - a.priority);
+    const { alerts, monthlyStats } = await buildCrmAlertsAndStats(supabase, customersData);
+
+    setMonthlyStats(monthlyStats);
     setCrmAlerts(alerts);
+
+    const alreadyReadToday = await fetchTodayNotificationReadStatus();
+
     if (!hasAutoShownCrm.current) {
-      if (alerts.length > 0) setShowCrmPopup(true);
+      if (alerts.length > 0 && !alreadyReadToday) {
+        setShowCrmPopup(true);
+        await markTodayNotificationsAsRead();
+      }
       hasAutoShownCrm.current = true;
     }
   };
@@ -364,18 +457,24 @@ export default function Dashboard() {
                 </button>
               </div>
 
-              {/* 가운데: 알림 종 */}
-              <div className="flex-1 flex justify-center">
+              {/* 가운데: 알림 종 + 알림 설정 */}
+              <div className="flex-1 flex justify-center items-center gap-1">
                 <button
-                  onClick={() => { if(crmAlerts.length > 0) setShowCrmPopup(true); }}
+                  onClick={openCrmPopup}
                   className={`relative p-2 rounded-xl transition-all active:scale-90 ${crmAlerts.length > 0 ? 'bg-white/20' : 'opacity-30'}`}
                 >
                   <span className="text-xl">🔔</span>
-                  {crmAlerts.length > 0 && (
+                  {crmAlerts.length > 0 && !hasReadTodayNotifications && (
                     <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[10px] font-extrabold flex items-center justify-center rounded-full border-2 border-blue-600 shadow-sm">
                       {crmAlerts.length}
                     </span>
                   )}
+                </button>
+                <button
+                  onClick={() => setIsNotificationModalOpen(true)}
+                  className="whitespace-nowrap px-2.5 py-2 bg-white/15 hover:bg-white/25 rounded-xl text-white font-bold text-[11px] transition-colors active:scale-95"
+                >
+                  ⚙️ 설정
                 </button>
               </div>
 
@@ -460,6 +559,75 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+
+      {isNotificationModalOpen && (
+        <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center p-0 sm:p-4 z-[115]">
+          <div className="bg-white w-full max-w-md rounded-t-[2rem] sm:rounded-[2.5rem] p-6 pt-8 pb-8 shadow-2xl relative">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold text-slate-900">알림 설정</h2>
+              <button onClick={() => setIsNotificationModalOpen(false)} className="px-3 py-1.5 bg-slate-200 rounded-full text-sm font-bold text-slate-800 active:bg-slate-300">닫기</button>
+            </div>
+
+            <div className="space-y-3">
+              {[
+                { key: 'birthday_alert', label: '생일 알림' },
+                { key: 'meeting_alert', label: '미팅 알림' },
+                { key: 'consultation_alert', label: '상담 7일 경과' },
+                { key: 'purchase_alert', label: '구매 30일 미구매' },
+                { key: 'expiry_alert', label: '제품 만료' },
+                { key: 'new_customer_alert', label: '신규 소비자 7일 없음' }
+              ].map(item => (
+                <label key={item.key} className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 cursor-pointer active:bg-blue-50">
+                  <span className="text-slate-800 font-bold text-sm">{item.label}</span>
+                  <input
+                    type="checkbox"
+                    checked={notificationSettings[item.key as keyof typeof notificationSettings] as boolean}
+                    onChange={() => toggleNotificationSetting(item.key as keyof typeof notificationSettings)}
+                    className="w-5 h-5 accent-blue-600"
+                  />
+                </label>
+              ))}
+            </div>
+
+            <div className="my-6 border-t border-slate-200"></div>
+
+            <div className="space-y-3">
+              <label className="flex items-center justify-between bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3 cursor-pointer active:bg-blue-100">
+                <span className="text-blue-900 font-extrabold text-sm">매일 아침 푸시 받기</span>
+                <input
+                  type="checkbox"
+                  checked={notificationSettings.daily_push_enabled}
+                  onChange={() => toggleNotificationSetting('daily_push_enabled')}
+                  className="w-5 h-5 accent-blue-600"
+                />
+              </label>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-500 ml-1">푸시 시간</label>
+                <select
+                  value={notificationSettings.daily_push_time}
+                  onChange={(e) => setNotificationSettings(prev => ({ ...prev, daily_push_time: e.target.value }))}
+                  className="w-full px-4 py-4 bg-white border border-slate-200 rounded-xl outline-none text-slate-900 font-bold"
+                >
+                  <option value="07:00">07:00</option>
+                  <option value="08:00">08:00</option>
+                  <option value="09:00">09:00</option>
+                  <option value="10:00">10:00</option>
+                </select>
+              </div>
+            </div>
+
+            <button
+              onClick={handleSaveNotificationSettings}
+              disabled={isSavingNotification}
+              className="w-full mt-6 py-4 bg-blue-600 disabled:bg-slate-300 text-white font-bold rounded-2xl shadow-lg active:scale-95 transition-transform"
+            >
+              {isSavingNotification ? '저장 중...' : '저장'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {alertModal.isOpen && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-6 z-[120]">
