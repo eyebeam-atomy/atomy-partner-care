@@ -901,12 +901,18 @@ export default function Dashboard() {
       purchaseData.duration === "custom"
         ? purchaseData.custom_duration
         : purchaseData.duration;
-    const durationDays = durationValue ? parseInt(durationValue, 10) : null;
-    if (purchaseData.duration === "custom" && (!durationValue || Number.isNaN(durationDays) || durationDays <= 0)) {
+    const durationDays: number | null = durationValue ? parseInt(durationValue, 10) : null;
+    if (
+      purchaseData.duration === "custom" &&
+      (!durationValue ||
+        durationDays === null ||
+        Number.isNaN(durationDays) ||
+        durationDays <= 0)
+    ) {
       return showAlert("입력 확인", "기타 기간은 숫자로 입력해주세요.");
     }
-    const expiryDate = durationDays ? new Date(pDate) : null;
-    if (expiryDate) expiryDate.setDate(pDate.getDate() + durationDays);
+    const expiryDate = durationDays !== null ? new Date(pDate) : null;
+    if (expiryDate && durationDays !== null) expiryDate.setDate(pDate.getDate() + durationDays);
     const price = purchaseData.price
       ? parseInt(purchaseData.price.replace(/,/g, ""), 10)
       : null;
