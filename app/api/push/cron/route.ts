@@ -49,7 +49,7 @@ async function writeCronLog(
   payload: CronLogPayload
 ) {
   try {
-    await supabase.from('cron_logs').insert({
+    await (supabase as any).from('cron_logs').insert({
       type: payload.type || 'daily_push',
       status: payload.status,
       message: payload.message,

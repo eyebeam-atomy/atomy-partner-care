@@ -132,6 +132,7 @@ export default function Dashboard() {
     price: "",
     payment_status: "paid",
     product_name: "",
+    ordered_for: "",
   });
   const [crmAlerts, setCrmAlerts] = useState<any[]>([]);
   const [showCrmPopup, setShowCrmPopup] = useState(false);
@@ -173,6 +174,66 @@ export default function Dashboard() {
     confirmText = "삭제",
   ) => {
     setConfirmModal({ isOpen: true, title, message, confirmText, onConfirm });
+  };
+
+
+  const normalizeProductName = (value: string) => value.trim().toLowerCase();
+
+  const getProductPrice = (product: any) => {
+    const rawPrice =
+      product?.price ??
+      product?.amount ??
+      product?.sale_price ??
+      product?.selling_price ??
+      product?.consumer_price ??
+      product?.member_price ??
+      "";
+    const digits = String(rawPrice ?? "").replace(/\D/g, "");
+    return digits;
+  };
+
+  const onlyDigits = (value: string, maxLength?: number) => {
+    const digits = value.replace(/\D/g, "");
+    return typeof maxLength === "number" ? digits.slice(0, maxLength) : digits;
+  };
+
+  const formatPriceInput = (value: string) => {
+    const digits = onlyDigits(value, 7);
+    if (!digits) return "";
+    return Number(digits).toLocaleString("ko-KR");
+  };
+
+  const formatPhoneInput = (value: string) => {
+    const digits = onlyDigits(value, 11);
+    if (digits.length <= 3) return digits;
+    if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+    return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+  };
+
+  const formatWon = (value: any) => {
+    const digits = String(value ?? "").replace(/\D/g, "");
+    if (!digits) return "";
+    return `${Number(digits).toLocaleString("ko-KR")}원`;
+  };
+
+  const findProductByName = (value: string) => {
+    const keyword = normalizeProductName(value);
+    if (!keyword) return null;
+    return (
+      productList.find((product) => normalizeProductName(product.name || "") === keyword) ||
+      null
+    );
+  };
+
+  const handleProductNameChange = (value: string) => {
+    const matchedProduct = findProductByName(value);
+    const matchedPrice = matchedProduct ? getProductPrice(matchedProduct) : "";
+
+    setPurchaseData((prev) => ({
+      ...prev,
+      product_name: value,
+      ...(matchedProduct && matchedPrice ? { price: formatPriceInput(matchedPrice) } : {}),
+    }));
   };
 
   useEffect(() => {
@@ -740,6 +801,7 @@ export default function Dashboard() {
       price: "",
       payment_status: "paid",
       product_name: "",
+      ordered_for: "",
     });
   };
 
@@ -759,7 +821,11 @@ export default function Dashboard() {
         type: "consultation",
         content: decrypt(i.content),
       })) || []),
-      ...(purs?.map((i) => ({ ...i, type: "purchase" })) || []),
+      ...(purs?.map((i) => ({
+        ...i,
+        type: "purchase",
+        ordered_for: i.ordered_for ? decrypt(i.ordered_for) : "",
+      })) || []),
     ].sort(
       (a, b) =>
         new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
@@ -846,9 +912,14 @@ export default function Dashboard() {
       : null;
     if (purchaseData.price && Number.isNaN(price))
       return showAlert("입력 확인", "가격은 숫자로 입력해주세요.");
+    if (price !== null && price > 9999999)
+      return showAlert("입력 확인", "가격은 9,999,999원 이하로 입력해주세요.");
     const payload = {
       customer_id: selectedCustomer.id,
       product_name: productName,
+      ordered_for: purchaseData.ordered_for.trim()
+        ? encrypt(purchaseData.ordered_for.trim())
+        : "",
       duration_days: durationDays,
       price,
       payment_status: purchaseData.payment_status,
@@ -872,6 +943,7 @@ export default function Dashboard() {
       price: "",
       payment_status: "paid",
       product_name: "",
+      ordered_for: "",
     });
     setEditingPurchaseId(null);
     await fetchHistory();
@@ -887,6 +959,7 @@ export default function Dashboard() {
       price: item.price ? item.price.toLocaleString("ko-KR") : "",
       payment_status: item.payment_status || "paid",
       product_name: item.product_name || "",
+      ordered_for: item.ordered_for || "",
     });
   };
 
@@ -1611,12 +1684,14 @@ export default function Dashboard() {
               />
               <input
                 type="tel"
+                inputMode="numeric"
+                maxLength={13}
                 placeholder="전화번호"
                 required
                 className="w-full px-4 py-4 bg-white border border-slate-200 rounded-xl outline-none text-slate-900 font-medium"
                 value={formData.phone}
                 onChange={(e) =>
-                  setFormData({ ...formData, phone: e.target.value })
+                  setFormData({ ...formData, phone: formatPhoneInput(e.target.value) })
                 }
               />
               <div className="space-y-1">
@@ -1929,23 +2004,32 @@ export default function Dashboard() {
                       autoComplete="off"
                       className="w-full px-4 py-4 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-medium"
                       value={purchaseData.product_name}
+                      onChange={(e) => handleProductNameChange(e.target.value)}
+                    />
+                    <input
+                      type="text"
+                      placeholder="대리 주문 대상 이름 (선택)"
+                      autoComplete="off"
+                      className="w-full px-4 py-4 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-medium"
+                      value={purchaseData.ordered_for}
                       onChange={(e) =>
                         setPurchaseData({
                           ...purchaseData,
-                          product_name: e.target.value,
+                          ordered_for: e.target.value,
                         })
                       }
                     />
                     <input
                       type="text"
                       inputMode="numeric"
+                      maxLength={9}
                       placeholder="가격 입력 (예: 35000)"
                       className="w-full px-4 py-4 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-medium"
                       value={purchaseData.price}
                       onChange={(e) =>
                         setPurchaseData({
                           ...purchaseData,
-                          price: e.target.value.replace(/[^0-9,]/g, ""),
+                          price: formatPriceInput(e.target.value),
                         })
                       }
                     />
@@ -1964,7 +2048,11 @@ export default function Dashboard() {
                     </select>
                     <datalist id="product-list">
                       {productList.map((p) => (
-                        <option key={p.id} value={p.name} />
+                        <option
+                          key={p.id}
+                          value={p.name}
+                          label={formatWon(getProductPrice(p)) || undefined}
+                        />
                       ))}
                     </datalist>
                   </div>
@@ -1996,13 +2084,14 @@ export default function Dashboard() {
                       <input
                         type="text"
                         inputMode="numeric"
+                        maxLength={3}
                         placeholder="기간 직접 입력 (숫자만)"
                         className="flex-1 px-3 py-3 bg-white border border-emerald-200 rounded-xl text-sm outline-none text-slate-900 font-medium"
                         value={purchaseData.custom_duration}
                         onChange={(e) =>
                           setPurchaseData({
                             ...purchaseData,
-                            custom_duration: e.target.value.replace(/\D/g, ""),
+                            custom_duration: onlyDigits(e.target.value, 3),
                           })
                         }
                       />
@@ -2117,26 +2206,32 @@ export default function Dashboard() {
                                   autoComplete="off"
                                   className="w-full px-4 py-4 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-medium"
                                   value={purchaseData.product_name}
+                                  onChange={(e) => handleProductNameChange(e.target.value)}
+                                />
+                                <input
+                                  type="text"
+                                  placeholder="대리 주문 대상 이름 (선택)"
+                                  autoComplete="off"
+                                  className="w-full px-4 py-4 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-medium"
+                                  value={purchaseData.ordered_for}
                                   onChange={(e) =>
                                     setPurchaseData({
                                       ...purchaseData,
-                                      product_name: e.target.value,
+                                      ordered_for: e.target.value,
                                     })
                                   }
                                 />
                                 <input
                                   type="text"
                                   inputMode="numeric"
+                                  maxLength={9}
                                   placeholder="가격 입력 (예: 35000)"
                                   className="w-full px-4 py-4 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-medium"
                                   value={purchaseData.price}
                                   onChange={(e) =>
                                     setPurchaseData({
                                       ...purchaseData,
-                                      price: e.target.value.replace(
-                                        /[^0-9,]/g,
-                                        "",
-                                      ),
+                                      price: formatPriceInput(e.target.value),
                                     })
                                   }
                                 />
@@ -2182,13 +2277,14 @@ export default function Dashboard() {
                                   <input
                                     type="text"
                                     inputMode="numeric"
+                                    maxLength={3}
                                     placeholder="기간 직접 입력 (숫자만)"
                                     className="flex-1 px-3 py-3 bg-white border border-emerald-200 rounded-xl text-sm outline-none text-slate-900 font-medium"
                                     value={purchaseData.custom_duration}
                                     onChange={(e) =>
                                       setPurchaseData({
                                         ...purchaseData,
-                                        custom_duration: e.target.value.replace(/\D/g, ""),
+                                        custom_duration: onlyDigits(e.target.value, 3),
                                       })
                                     }
                                   />
@@ -2204,6 +2300,7 @@ export default function Dashboard() {
                                       price: "",
                                       payment_status: "paid",
                                       product_name: "",
+                                      ordered_for: "",
                                     });
                                   }}
                                   className="flex-1 py-3 bg-white border border-slate-300 rounded-xl text-sm font-bold text-slate-700"
@@ -2224,6 +2321,11 @@ export default function Dashboard() {
                                 <p className="text-slate-900 font-bold text-sm truncate">
                                   {item.product_name}
                                 </p>
+                                {item.ordered_for && (
+                                  <p className="text-[11px] text-purple-600 font-bold mt-1">
+                                    대리 주문: {item.ordered_for}
+                                  </p>
+                                )}
                                 {item.expiry_date && (
                                   <p className="text-[11px] text-slate-500 mt-1">
                                     종료 예정:{" "}
