@@ -22,34 +22,74 @@ function safeDecrypt(value: any) {
 
 function getAuthorized(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
-  const authorization = request.headers.get("authorization");
-  const querySecret = request.nextUrl.searchParams.get("secret");
+  const authorization = request.headers.get('authorization');
+  const querySecret = request.nextUrl.searchParams.get('secret');
 
   if (!cronSecret) return false;
 
-  return (
-    authorization === `Bearer ${cronSecret}` ||
-    querySecret === cronSecret
-  );
+  return authorization === `Bearer ${cronSecret}` || querySecret === cronSecret;
+}
+
+async function writeCronLog(
+  supabase: any,
+  payload: {
+    type?: string;
+    status: string;
+    message?: string;
+    target_count?: number;
+    sent_count?: number;
+    error_count?: number;
+  }
+) {
+  try {
+    await supabase.from('cron_logs' as any).insert({
+      type: payload.type || 'daily_push',
+      status: payload.status,
+      message: payload.message || '',
+      target_count: payload.target_count ?? 0,
+      sent_count: payload.sent_count ?? 0,
+      error_count: payload.error_count ?? 0,
+    } as any);
+  } catch (logError) {
+    console.error('cron_logs 저장 실패:', logError);
+  }
 }
 
 export async function GET(request: NextRequest) {
-  try {
-    if (!getAuthorized(request)) {
-      return NextResponse.json({ error: '인증 실패' }, { status: 401 });
-    }
+  let supabase: any = null;
 
+  try {
     const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
     const privateKey = process.env.VAPID_PRIVATE_KEY;
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-    if (!publicKey || !privateKey) {
-      return NextResponse.json({ error: 'VAPID 키가 없습니다.' }, { status: 500 });
-    }
-
     if (!supabaseUrl || !serviceRoleKey) {
       return NextResponse.json({ error: 'Supabase 서버 키가 없습니다.' }, { status: 500 });
+    }
+
+    supabase = createClient(supabaseUrl, serviceRoleKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    }) as any;
+
+    if (!getAuthorized(request)) {
+      await writeCronLog(supabase, {
+        status: 'auth_failed',
+        message: '자동 푸시 인증 실패',
+        error_count: 1,
+      });
+
+      return NextResponse.json({ error: '인증 실패' }, { status: 401 });
+    }
+
+    if (!publicKey || !privateKey) {
+      await writeCronLog(supabase, {
+        status: 'failed',
+        message: 'VAPID 키가 없습니다.',
+        error_count: 1,
+      });
+
+      return NextResponse.json({ error: 'VAPID 키가 없습니다.' }, { status: 500 });
     }
 
     const { today, currentTime } = getKstParts();
@@ -59,9 +99,10 @@ export async function GET(request: NextRequest) {
 
     webpush.setVapidDetails('mailto:admin@partner-care.local', publicKey, privateKey);
 
-    const supabase = createClient(supabaseUrl, serviceRoleKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    }) as any;
+    await writeCronLog(supabase, {
+      status: 'started',
+      message: `자동 푸시 실행 시작: ${today} ${currentTime}`,
+    });
 
     const { data: settings, error: settingsError } = await supabase
       .from('notification_settings')
@@ -71,11 +112,17 @@ export async function GET(request: NextRequest) {
 
     if (settingsError) throw settingsError;
 
+    await writeCronLog(supabase, {
+      status: 'settings_loaded',
+      message: `푸시 설정 조회 완료: 대상 후보 ${(settings || []).length}명`,
+      target_count: (settings || []).length,
+    });
+
     const results: any[] = [];
 
     for (const setting of (settings || []) as NotificationSettingsForPush[]) {
       const { data: existingLog, error: logSelectError } = await supabase
-        .from('notification_push_logs')
+        .from('notification_push_logs' as any)
         .select('id')
         .eq('partner_id', setting.partner_id)
         .eq('push_date', today)
@@ -107,15 +154,13 @@ export async function GET(request: NextRequest) {
           })
         );
 
-        await supabase
-          .from('notification_push_logs')
-          .insert({
-            partner_id: setting.partner_id,
-            push_date: today,
-            push_time: targetTime,
-            alert_count: message.total,
-            summary: message.summary,
-          });
+        await supabase.from('notification_push_logs' as any).insert({
+          partner_id: setting.partner_id,
+          push_date: today,
+          push_time: targetTime,
+          alert_count: message.total,
+          summary: message.summary,
+        } as any);
 
         results.push({
           partner_id: setting.partner_id,
@@ -129,8 +174,8 @@ export async function GET(request: NextRequest) {
 
         if (statusCode === 404 || statusCode === 410) {
           await supabase
-            .from('notification_settings')
-            .update({ push_subscription: null, updated_at: new Date().toISOString() })
+            .from('notification_settings' as any)
+            .update({ push_subscription: null, updated_at: new Date().toISOString() } as any)
             .eq('partner_id', setting.partner_id);
         }
 
@@ -142,17 +187,42 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    const sentCount = results.filter((item) => item.status === 'sent').length;
+    const failedCount = results.filter((item) => item.status === 'failed').length;
+    const duplicateCount = results.filter((item) => item.status === 'skipped_duplicate').length;
+    const noAlertCount = results.filter((item) => item.status === 'skipped_no_alerts').length;
+
+    await writeCronLog(supabase, {
+      status: failedCount > 0 ? 'completed_with_errors' : 'completed',
+      message: `자동 푸시 완료: 대상 ${(settings || []).length}명, 발송 ${sentCount}명, 실패 ${failedCount}명, 중복 제외 ${duplicateCount}명, 알림 없음 ${noAlertCount}명`,
+      target_count: (settings || []).length,
+      sent_count: sentCount,
+      error_count: failedCount,
+    });
+
     return NextResponse.json({
       ok: true,
       date: today,
       current_time: currentTime,
       target_time: targetTime,
       target_count: settings?.length || 0,
-      sent_count: results.filter((item) => item.status === 'sent').length,
+      sent_count: sentCount,
+      failed_count: failedCount,
+      duplicate_count: duplicateCount,
+      no_alert_count: noAlertCount,
       results,
     });
   } catch (error: any) {
     console.error('자동 푸시 처리 실패:', error);
+
+    if (supabase) {
+      await writeCronLog(supabase, {
+        status: 'failed',
+        message: error?.message || '자동 푸시 처리 중 오류가 발생했습니다.',
+        error_count: 1,
+      });
+    }
+
     return NextResponse.json(
       { error: error?.message || '자동 푸시 처리 중 오류가 발생했습니다.' },
       { status: 500 }
