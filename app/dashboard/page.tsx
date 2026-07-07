@@ -55,7 +55,10 @@ export default function Dashboard() {
     concerns: [] as string[],
     concern_other: "",
   });
-  const [historyGroups, setHistoryGroups] = useState<any[]>([]);
+  const [consultationGroups, setConsultationGroups] = useState<any[]>([]);
+  const [purchaseGroups, setPurchaseGroups] = useState<any[]>([]);
+  const [historyTab, setHistoryTab] = useState<"consultation" | "purchase">("consultation");
+  const [purchaseFilter, setPurchaseFilter] = useState<"all" | "active" | "expiring" | "ended" | "no_period">("all");
   const [isPwdModalOpen, setIsPwdModalOpen] = useState(false);
   const [newPwd, setNewPwd] = useState("");
   const [confirmPwd, setConfirmPwd] = useState("");
@@ -805,6 +808,22 @@ export default function Dashboard() {
     });
   };
 
+  const groupItemsByDate = (items: any[]) => {
+    const groups: any[] = [];
+    items
+      .sort(
+        (a, b) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+      )
+      .forEach((item) => {
+        const dateKey = new Date(item.created_at).toLocaleDateString("ko-KR");
+        const existingGroup = groups.find((g) => g.date === dateKey);
+        if (existingGroup) existingGroup.items.push(item);
+        else groups.push({ date: dateKey, items: [item] });
+      });
+    return groups;
+  };
+
   const fetchHistory = async () => {
     if (!selectedCustomer) return;
     const { data: cons } = await supabase
@@ -815,29 +834,23 @@ export default function Dashboard() {
       .from("purchases")
       .select("*")
       .eq("customer_id", selectedCustomer.id);
-    const combined = [
-      ...(cons?.map((i) => ({
+
+    const consultations =
+      cons?.map((i) => ({
         ...i,
         type: "consultation",
         content: decrypt(i.content),
-      })) || []),
-      ...(purs?.map((i) => ({
+      })) || [];
+
+    const purchases =
+      purs?.map((i) => ({
         ...i,
         type: "purchase",
         ordered_for: i.ordered_for ? decrypt(i.ordered_for) : "",
-      })) || []),
-    ].sort(
-      (a, b) =>
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-    );
-    const groups: any[] = [];
-    combined.forEach((item) => {
-      const dateKey = new Date(item.created_at).toLocaleDateString("ko-KR");
-      const existingGroup = groups.find((g) => g.date === dateKey);
-      if (existingGroup) existingGroup.items.push(item);
-      else groups.push({ date: dateKey, items: [item] });
-    });
-    setHistoryGroups(groups);
+      })) || [];
+
+    setConsultationGroups(groupItemsByDate(consultations));
+    setPurchaseGroups(groupItemsByDate(purchases));
   };
 
   useEffect(() => {
@@ -926,7 +939,7 @@ export default function Dashboard() {
       ordered_for: purchaseData.ordered_for.trim()
         ? encrypt(purchaseData.ordered_for.trim())
         : "",
-      duration_days: durationDays,
+      duration_days: durationDays === null ? null : durationDays,
       price,
       payment_status: purchaseData.payment_status,
       paid_at:
@@ -934,7 +947,8 @@ export default function Dashboard() {
           ? new Date().toISOString()
           : null,
       created_at: pDate.toISOString(),
-      expiry_date: expiryDate ? expiryDate.toISOString() : null,
+      expiry_date:
+        durationDays === null || !expiryDate ? null : expiryDate.toISOString(),
     };
     if (editingPurchaseId)
       await supabase
@@ -976,6 +990,44 @@ export default function Dashboard() {
       fetchCustomers();
     });
   };
+
+
+  const getPurchaseStatus = (item: any) => {
+    if (!item.duration_days && !item.expiry_date) return "no_period";
+    if (!item.expiry_date) return "no_period";
+
+    const todayDate = new Date(today);
+    const expiryDate = new Date(item.expiry_date);
+    todayDate.setHours(0, 0, 0, 0);
+    expiryDate.setHours(0, 0, 0, 0);
+
+    const diffDays = Math.ceil(
+      (expiryDate.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24),
+    );
+
+    if (diffDays < 0) return "ended";
+    if (diffDays <= 7) return "expiring";
+    return "active";
+  };
+
+  const filteredPurchaseItems = purchaseGroups
+    .flatMap((group) => group.items)
+    .filter((item) =>
+      purchaseFilter === "all" ? true : getPurchaseStatus(item) === purchaseFilter,
+    );
+
+  const filteredPurchaseGroups = groupItemsByDate(filteredPurchaseItems);
+
+  const purchaseEmptyMessage =
+    purchaseFilter === "active"
+      ? "복용중인 구매 이력이 없습니다."
+      : purchaseFilter === "expiring"
+        ? "종료 임박 구매 이력이 없습니다."
+        : purchaseFilter === "ended"
+          ? "종료된 구매 이력이 없습니다."
+          : purchaseFilter === "no_period"
+            ? "기간 미설정 구매 이력이 없습니다."
+            : "아직 구매 이력이 없습니다.";
 
   const handleLogout = () => {
     showConfirm(
@@ -1088,14 +1140,14 @@ export default function Dashboard() {
                 <input
                   type="password"
                   placeholder="새 비밀번호 (8자 이상)"
-                  className="w-full px-4 py-4 bg-slate-50 border border-slate-200 rounded-xl outline-none text-slate-900 font-medium text-center"
+                  className="w-full px-4 h-12 py-0 bg-slate-50 border border-slate-200 rounded-xl outline-none text-slate-900 font-medium text-center"
                   value={newPwd}
                   onChange={(e) => setNewPwd(e.target.value)}
                 />
                 <input
                   type="password"
                   placeholder="비밀번호 확인"
-                  className="w-full px-4 py-4 bg-slate-50 border border-slate-200 rounded-xl outline-none text-slate-900 font-medium text-center"
+                  className="w-full px-4 h-12 py-0 bg-slate-50 border border-slate-200 rounded-xl outline-none text-slate-900 font-medium text-center"
                   value={confirmPwd}
                   onChange={(e) => setConfirmPwd(e.target.value)}
                 />
@@ -1277,7 +1329,7 @@ export default function Dashboard() {
             </button>
             <div className="flex gap-2">
               <select
-                className="px-3 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-900 outline-none shrink-0"
+                className="px-3 h-12 py-0 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-900 outline-none shrink-0"
                 value={searchType}
                 onChange={(e) => {
                   setSearchType(e.target.value);
@@ -1294,7 +1346,7 @@ export default function Dashboard() {
               <input
                 type="text"
                 placeholder="검색어 입력"
-                className="flex-1 px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-500 font-medium outline-none disabled:bg-slate-100 disabled:text-slate-400"
+                className="flex-1 px-4 h-12 py-0 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-500 font-medium outline-none disabled:bg-slate-100 disabled:text-slate-400"
                 value={searchKeyword}
                 onChange={(e) => setSearchKeyword(e.target.value)}
                 disabled={isAdvancedSearchOpen && hasAdvancedSearch}
@@ -1319,7 +1371,7 @@ export default function Dashboard() {
                     <input
                       type="text"
                       placeholder="소비자 이름"
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-500 font-medium outline-none"
+                      className="w-full px-4 h-12 py-0 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-500 font-medium outline-none"
                       value={advancedSearch.name}
                       onChange={(e) =>
                         setAdvancedSearch((prev) => ({
@@ -1331,7 +1383,7 @@ export default function Dashboard() {
                     <input
                       type="text"
                       placeholder="주소"
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-500 font-medium outline-none"
+                      className="w-full px-4 h-12 py-0 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-500 font-medium outline-none"
                       value={advancedSearch.address}
                       onChange={(e) =>
                         setAdvancedSearch((prev) => ({
@@ -1341,7 +1393,7 @@ export default function Dashboard() {
                       }
                     />
                     <select
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 font-bold outline-none"
+                      className="w-full px-4 h-12 py-0 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 font-bold outline-none"
                       value={advancedSearch.concern}
                       onChange={(e) =>
                         setAdvancedSearch((prev) => ({
@@ -1360,7 +1412,7 @@ export default function Dashboard() {
                     <input
                       type="text"
                       placeholder="구매 제품명"
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-500 font-medium outline-none"
+                      className="w-full px-4 h-12 py-0 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-500 font-medium outline-none"
                       value={advancedSearch.product}
                       onChange={(e) =>
                         setAdvancedSearch((prev) => ({
@@ -1372,7 +1424,7 @@ export default function Dashboard() {
                     <input
                       type="text"
                       placeholder="상담 내용"
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-500 font-medium outline-none"
+                      className="w-full px-4 h-12 py-0 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-500 font-medium outline-none"
                       value={advancedSearch.consultation}
                       onChange={(e) =>
                         setAdvancedSearch((prev) => ({
@@ -1682,7 +1734,7 @@ export default function Dashboard() {
                 type="text"
                 placeholder="이름"
                 required
-                className="w-full px-4 py-4 bg-white border border-slate-200 rounded-xl outline-none text-slate-900 font-medium"
+                className="w-full px-4 h-12 py-0 bg-white border border-slate-200 rounded-xl outline-none text-slate-900 font-medium"
                 value={formData.name}
                 onChange={(e) =>
                   setFormData({ ...formData, name: e.target.value })
@@ -1694,7 +1746,7 @@ export default function Dashboard() {
                 maxLength={13}
                 placeholder="전화번호"
                 required
-                className="w-full px-4 py-4 bg-white border border-slate-200 rounded-xl outline-none text-slate-900 font-medium"
+                className="w-full px-4 h-12 py-0 bg-white border border-slate-200 rounded-xl outline-none text-slate-900 font-medium"
                 value={formData.phone}
                 onChange={(e) =>
                   setFormData({ ...formData, phone: formatPhoneInput(e.target.value) })
@@ -1710,7 +1762,7 @@ export default function Dashboard() {
                     inputMode="numeric"
                     maxLength={10}
                     placeholder="예: 20260707"
-                    className="flex-1 min-w-0 px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm outline-none text-slate-900 font-medium"
+                    className="flex-1 min-w-0 px-4 h-12 py-0 bg-white border border-slate-200 rounded-xl text-sm outline-none text-slate-900 font-medium"
                     value={formData.birthday}
                     onChange={(e) =>
                       setFormData({
@@ -1721,7 +1773,7 @@ export default function Dashboard() {
                     onBlur={(e) => validateDateOnBlur(e.target.value, "생일")}
                   />
                   <select
-                    className="w-24 px-3 py-3 bg-white border border-slate-200 rounded-xl text-sm outline-none text-slate-900 font-bold"
+                    className="w-24 px-3 h-12 py-0 bg-white border border-slate-200 rounded-xl text-sm outline-none text-slate-900 font-bold"
                     value={formData.birthday_type}
                     onChange={(e) =>
                       setFormData({ ...formData, birthday_type: e.target.value })
@@ -1735,7 +1787,7 @@ export default function Dashboard() {
               <input
                 type="text"
                 placeholder="주소 (선택)"
-                className="w-full px-4 py-4 bg-white border border-slate-200 rounded-xl outline-none text-slate-900 font-medium"
+                className="w-full px-4 h-12 py-0 bg-white border border-slate-200 rounded-xl outline-none text-slate-900 font-medium"
                 value={formData.address}
                 onChange={(e) =>
                   setFormData({ ...formData, address: e.target.value })
@@ -1770,7 +1822,7 @@ export default function Dashboard() {
                   <input
                     type="text"
                     placeholder="기타 고민 직접 입력"
-                    className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl outline-none text-slate-900 font-medium"
+                    className="w-full px-4 h-12 py-0 bg-white border border-slate-200 rounded-xl outline-none text-slate-900 font-medium"
                     value={formData.concern_other}
                     onChange={(e) =>
                       setFormData({
@@ -1901,7 +1953,7 @@ export default function Dashboard() {
                           inputMode="numeric"
                           maxLength={10}
                           placeholder="예: 20260707"
-                          className="w-full px-3 py-3 bg-white border border-blue-200 rounded-xl text-sm outline-none text-slate-900 font-medium"
+                          className="w-full px-3 h-12 py-0 bg-white border border-blue-200 rounded-xl text-sm outline-none text-slate-900 font-medium"
                           value={consultationData.date}
                           onChange={(e) =>
                             setConsultationData({
@@ -1923,7 +1975,7 @@ export default function Dashboard() {
                           inputMode="numeric"
                           maxLength={10}
                           placeholder="예: 20260707"
-                          className="w-full px-3 py-3 bg-white border border-blue-200 rounded-xl text-sm outline-none text-slate-900 font-medium"
+                          className="w-full px-3 h-12 py-0 bg-white border border-blue-200 rounded-xl text-sm outline-none text-slate-900 font-medium"
                           value={consultationData.next_meeting_date}
                           onChange={(e) =>
                             setConsultationData({
@@ -1991,7 +2043,7 @@ export default function Dashboard() {
                         inputMode="numeric"
                         maxLength={10}
                         placeholder="예: 20260707"
-                        className="w-full px-3 py-3 bg-white border border-emerald-200 rounded-xl text-sm outline-none text-slate-900 font-medium"
+                        className="w-full px-3 h-12 py-0 bg-white border border-emerald-200 rounded-xl text-sm outline-none text-slate-900 font-medium"
                         value={purchaseData.date}
                         onChange={(e) =>
                           setPurchaseData({
@@ -2008,7 +2060,7 @@ export default function Dashboard() {
                       placeholder="제품명 입력 (예: 헤모힘)"
                       required
                       autoComplete="off"
-                      className="w-full px-4 py-4 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-medium"
+                      className="w-full px-4 h-12 py-0 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-medium"
                       value={purchaseData.product_name}
                       onChange={(e) => handleProductNameChange(e.target.value)}
                     />
@@ -2016,7 +2068,7 @@ export default function Dashboard() {
                       type="text"
                       placeholder="대리 주문 대상 이름 (선택)"
                       autoComplete="off"
-                      className="w-full px-4 py-4 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-medium"
+                      className="w-full px-4 h-12 py-0 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-medium"
                       value={purchaseData.ordered_for}
                       onChange={(e) =>
                         setPurchaseData({
@@ -2030,7 +2082,7 @@ export default function Dashboard() {
                       inputMode="numeric"
                       maxLength={9}
                       placeholder="가격 입력 (예: 35000)"
-                      className="w-full px-4 py-4 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-medium"
+                      className="w-full px-4 h-12 py-0 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-medium"
                       value={purchaseData.price}
                       onChange={(e) =>
                         setPurchaseData({
@@ -2040,7 +2092,7 @@ export default function Dashboard() {
                       }
                     />
                     <select
-                      className="w-full px-4 py-4 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-bold"
+                      className="w-full px-4 h-12 py-0 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-bold"
                       value={purchaseData.payment_status}
                       onChange={(e) =>
                         setPurchaseData({
@@ -2064,7 +2116,7 @@ export default function Dashboard() {
                   </div>
                   <div className="flex flex-wrap gap-2 pt-1">
                     <select
-                      className="flex-1 px-3 py-3 bg-white border border-emerald-200 rounded-xl text-sm outline-none text-slate-900 font-medium"
+                      className="flex-1 px-3 h-12 py-0 bg-white border border-emerald-200 rounded-xl text-sm outline-none text-slate-900 font-medium"
                       value={purchaseData.duration}
                       onChange={(e) =>
                         setPurchaseData({
@@ -2092,7 +2144,7 @@ export default function Dashboard() {
                         inputMode="numeric"
                         maxLength={3}
                         placeholder="기간 직접 입력 (숫자만)"
-                        className="flex-1 px-3 py-3 bg-white border border-emerald-200 rounded-xl text-sm outline-none text-slate-900 font-medium"
+                        className="flex-1 px-3 h-12 py-0 bg-white border border-emerald-200 rounded-xl text-sm outline-none text-slate-900 font-medium"
                         value={purchaseData.custom_duration}
                         onChange={(e) =>
                           setPurchaseData({
@@ -2112,61 +2164,89 @@ export default function Dashboard() {
                 </form>
               )}
             </div>
-            <div className="space-y-6 pb-10">
-              <h4 className="font-bold text-slate-700 text-sm flex items-center gap-1">
-                📜 통합 활동 이력
-              </h4>
-              {historyGroups.length === 0 ? (
-                <p className="text-slate-400 text-center py-10 text-sm bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                  아직 활동 이력이 없습니다.
-                </p>
-              ) : (
-                historyGroups.map((group) => (
-                  <div
-                    key={group.date}
-                    className="relative pl-4 border-l-2 border-blue-100 ml-2 space-y-3"
+            <div className="space-y-4 pb-10">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <h4 className="font-bold text-slate-700 text-sm flex items-center gap-1 shrink-0">
+                    📜 활동 이력
+                  </h4>
+                  {historyTab === "purchase" && (
+                    <select
+                      className="h-8 px-2 bg-white border border-emerald-200 rounded-xl text-[11px] font-extrabold text-emerald-700 outline-none shrink-0"
+                      value={purchaseFilter}
+                      onChange={(e) =>
+                        setPurchaseFilter(
+                          e.target.value as "all" | "active" | "expiring" | "ended" | "no_period",
+                        )
+                      }
+                    >
+                      <option value="all">전체</option>
+                      <option value="active">복용중</option>
+                      <option value="expiring">종료 임박</option>
+                      <option value="ended">종료</option>
+                      <option value="no_period">기간 미설정</option>
+                    </select>
+                  )}
+                </div>
+                <div className="bg-slate-100 p-1 rounded-2xl flex gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setHistoryTab("consultation")}
+                    className={`px-3 py-2 rounded-xl text-xs font-extrabold transition-colors ${historyTab === "consultation" ? "bg-blue-600 text-white shadow-sm" : "text-slate-500"}`}
                   >
-                    <div className="absolute -left-[9px] top-0 w-4 h-4 bg-blue-600 rounded-full border-4 border-white shadow-sm"></div>
-                    <span className="text-sm font-extrabold text-blue-600 mb-2 block">
-                      {group.date}
-                    </span>
-                    <div className="space-y-2">
-                      {group.items.map((item: any) => (
-                        <div
-                          key={`${item.type}-${item.id}`}
-                          className={`p-4 rounded-xl border shadow-sm ${item.type === "consultation" ? "bg-white border-slate-200" : "bg-emerald-50/30 border-emerald-100"}`}
-                        >
-                          <div className="flex justify-between items-start mb-2">
-                            <span
-                              className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${item.type === "consultation" ? "bg-blue-50 text-blue-600" : "bg-emerald-100 text-emerald-700"}`}
+                    상담 이력
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setHistoryTab("purchase")}
+                    className={`px-3 py-2 rounded-xl text-xs font-extrabold transition-colors ${historyTab === "purchase" ? "bg-emerald-600 text-white shadow-sm" : "text-slate-500"}`}
+                  >
+                    구매 이력
+                  </button>
+                </div>
+              </div>
+
+              {historyTab === "consultation" && (
+                <div className="space-y-6">
+                  {consultationGroups.length === 0 ? (
+                    <p className="text-slate-400 text-center py-10 text-sm bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                      아직 상담 이력이 없습니다.
+                    </p>
+                  ) : (
+                    consultationGroups.map((group) => (
+                      <div
+                        key={group.date}
+                        className="relative pl-4 border-l-2 border-blue-100 ml-2 space-y-3"
+                      >
+                        <div className="absolute -left-[9px] top-0 w-4 h-4 bg-blue-600 rounded-full border-4 border-white shadow-sm"></div>
+                        <span className="text-sm font-extrabold text-blue-600 mb-2 block">
+                          {group.date}
+                        </span>
+                        <div className="space-y-2">
+                          {group.items.map((item: any) => (
+                            <div
+                              key={`consultation-${item.id}`}
+                              className="p-4 rounded-xl border shadow-sm bg-white border-slate-200"
                             >
-                              {item.type === "consultation" ? "상담" : "구매"}
-                            </span>
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() =>
-                                  item.type === "consultation"
-                                    ? editConsultation(item)
-                                    : editPurchase(item)
-                                }
-                                className="text-[11px] text-slate-400 font-bold"
-                              >
-                                수정
-                              </button>
-                              <button
-                                onClick={() =>
-                                  item.type === "consultation"
-                                    ? deleteConsultation(item.id)
-                                    : deletePurchase(item.id)
-                                }
-                                className="text-[11px] text-slate-400 font-bold"
-                              >
-                                삭제
-                              </button>
-                            </div>
-                          </div>
-                          {item.type === "consultation" ? (
-                            <>
+                              <div className="flex justify-between items-start mb-2">
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-50 text-blue-600">
+                                  상담
+                                </span>
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => editConsultation(item)}
+                                    className="text-[11px] text-slate-400 font-bold"
+                                  >
+                                    수정
+                                  </button>
+                                  <button
+                                    onClick={() => deleteConsultation(item.id)}
+                                    className="text-[11px] text-slate-400 font-bold"
+                                  >
+                                    삭제
+                                  </button>
+                                </div>
+                              </div>
                               <p className="text-slate-800 text-sm whitespace-pre-wrap leading-relaxed">
                                 {item.content}
                               </p>
@@ -2178,214 +2258,265 @@ export default function Dashboard() {
                                   ).toLocaleDateString("ko-KR")}
                                 </p>
                               )}
-                            </>
-                          ) : editingPurchaseId === item.id ? (
-                            <form
-                              onSubmit={handlePurchaseSubmit}
-                              className="bg-emerald-50 p-3 rounded-xl border border-emerald-100 space-y-2"
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+
+              {historyTab === "purchase" && (
+                <div className="space-y-6">
+                  {filteredPurchaseGroups.length === 0 ? (
+                    <p className="text-slate-400 text-center py-10 text-sm bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                      {purchaseEmptyMessage}
+                    </p>
+                  ) : (
+                    filteredPurchaseGroups.map((group) => (
+                      <div
+                        key={group.date}
+                        className="relative pl-4 border-l-2 border-emerald-100 ml-2 space-y-3"
+                      >
+                        <div className="absolute -left-[9px] top-0 w-4 h-4 bg-emerald-600 rounded-full border-4 border-white shadow-sm"></div>
+                        <span className="text-sm font-extrabold text-emerald-600 mb-2 block">
+                          {group.date}
+                        </span>
+                        <div className="space-y-2">
+                          {group.items.map((item: any) => (
+                            <div
+                              key={`purchase-${item.id}`}
+                              className="p-4 rounded-xl border shadow-sm bg-emerald-50/30 border-emerald-100"
                             >
-                              <p className="font-bold text-emerald-900 text-xs">
-                                ✏️ 이 구매이력 수정
-                              </p>
-                              <div className="flex flex-col gap-2">
-                                <input
-                                  type="text"
-                                  required
-                                  inputMode="numeric"
-                                  maxLength={10}
-                                  placeholder="예: 20260707"
-                                  className="w-full px-3 py-3 bg-white border border-emerald-200 rounded-xl text-sm outline-none text-slate-900 font-medium"
-                                  value={purchaseData.date}
-                                  onChange={(e) =>
-                                    setPurchaseData({
-                                      ...purchaseData,
-                                      date: formatDateInput(e.target.value),
-                                    })
-                                  }
-                                  onBlur={(e) => validateDateOnBlur(e.target.value, "구매일")}
-                                />
-                                <input
-                                  list="product-list"
-                                  type="text"
-                                  placeholder="제품명 입력 (예: 헤모힘)"
-                                  required
-                                  autoComplete="off"
-                                  className="w-full px-4 py-4 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-medium"
-                                  value={purchaseData.product_name}
-                                  onChange={(e) => handleProductNameChange(e.target.value)}
-                                />
-                                <input
-                                  type="text"
-                                  placeholder="대리 주문 대상 이름 (선택)"
-                                  autoComplete="off"
-                                  className="w-full px-4 py-4 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-medium"
-                                  value={purchaseData.ordered_for}
-                                  onChange={(e) =>
-                                    setPurchaseData({
-                                      ...purchaseData,
-                                      ordered_for: e.target.value,
-                                    })
-                                  }
-                                />
-                                <input
-                                  type="text"
-                                  inputMode="numeric"
-                                  maxLength={9}
-                                  placeholder="가격 입력 (예: 35000)"
-                                  className="w-full px-4 py-4 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-medium"
-                                  value={purchaseData.price}
-                                  onChange={(e) =>
-                                    setPurchaseData({
-                                      ...purchaseData,
-                                      price: formatPriceInput(e.target.value),
-                                    })
-                                  }
-                                />
-                                <select
-                                  className="w-full px-4 py-4 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-bold"
-                                  value={purchaseData.payment_status}
-                                  onChange={(e) =>
-                                    setPurchaseData({
-                                      ...purchaseData,
-                                      payment_status: e.target.value,
-                                    })
-                                  }
-                                >
-                                  <option value="paid">✅ 입금완료</option>
-                                  <option value="unpaid">⏳ 미수금</option>
-                                </select>
+                              <div className="flex justify-between items-start mb-2">
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700">
+                                  구매
+                                </span>
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => editPurchase(item)}
+                                    className="text-[11px] text-slate-400 font-bold"
+                                  >
+                                    수정
+                                  </button>
+                                  <button
+                                    onClick={() => deletePurchase(item.id)}
+                                    className="text-[11px] text-slate-400 font-bold"
+                                  >
+                                    삭제
+                                  </button>
+                                </div>
                               </div>
-                              <div className="flex flex-wrap gap-2 pt-1">
-                                <select
-                                  className="flex-1 px-3 py-3 bg-white border border-emerald-200 rounded-xl text-sm outline-none text-slate-900 font-medium"
-                                  value={purchaseData.duration}
-                                  onChange={(e) =>
-                                    setPurchaseData({
-                                      ...purchaseData,
-                                      duration: e.target.value,
-                                      custom_duration:
-                                        e.target.value === "custom"
-                                          ? purchaseData.custom_duration
-                                          : "",
-                                    })
-                                  }
+                              {editingPurchaseId === item.id ? (
+                                <form
+                                  onSubmit={handlePurchaseSubmit}
+                                  className="bg-emerald-50 p-3 rounded-xl border border-emerald-100 space-y-2"
                                 >
-                                  <option value="">기간 선택 안 함</option>
-                                  <option value="15">15일분</option>
-                                  <option value="30">1개월 (30일)</option>
-                                  <option value="60">2개월 (60일)</option>
-                                  <option value="90">3개월 (90일)</option>
-                                  <option value="120">4개월 (120일)</option>
-                                  <option value="180">6개월 (180일)</option>
-                                  <option value="custom">기타</option>
-                                </select>
-                                {purchaseData.duration === "custom" && (
-                                  <input
-                                    type="text"
-                                    inputMode="numeric"
-                                    maxLength={3}
-                                    placeholder="기간 직접 입력 (숫자만)"
-                                    className="flex-1 px-3 py-3 bg-white border border-emerald-200 rounded-xl text-sm outline-none text-slate-900 font-medium"
-                                    value={purchaseData.custom_duration}
-                                    onChange={(e) =>
-                                      setPurchaseData({
-                                        ...purchaseData,
-                                        custom_duration: onlyDigits(e.target.value, 3),
-                                      })
-                                    }
-                                  />
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setEditingPurchaseId(null);
-                                    setPurchaseData({
-                                      date: today,
-                                      duration: "",
-                                      custom_duration: "",
-                                      price: "",
-                                      payment_status: "paid",
-                                      product_name: "",
-                                      ordered_for: "",
-                                    });
-                                  }}
-                                  className="flex-1 py-3 bg-white border border-slate-300 rounded-xl text-sm font-bold text-slate-700"
-                                >
-                                  취소
-                                </button>
-                                <button
-                                  type="submit"
-                                  className="flex-1 py-3 bg-emerald-600 text-white rounded-xl text-sm font-bold shadow-sm"
-                                >
-                                  수정 완료
-                                </button>
-                              </div>
-                            </form>
-                          ) : (
-                            <div className="flex justify-between items-end gap-3 flex-nowrap">
-                              <div className="flex-1 min-w-0">
-                                <p className="text-slate-900 font-bold text-sm truncate">
-                                  {item.product_name}
-                                </p>
-                                {item.ordered_for && (
-                                  <p className="text-[11px] text-purple-600 font-bold mt-1">
-                                    대리 주문: {item.ordered_for}
+                                  <p className="font-bold text-emerald-900 text-xs">
+                                    ✏️ 이 구매이력 수정
                                   </p>
-                                )}
-                                {item.expiry_date && (
-                                  <p className="text-[11px] text-slate-500 mt-1">
-                                    종료 예정:{" "}
-                                    {new Date(
-                                      item.expiry_date,
-                                    ).toLocaleDateString("ko-KR")}
-                                  </p>
-                                )}
-                                {item.price != null && (
-                                  <p className="text-[11px] text-slate-500 mt-1">
-                                    가격: {item.price.toLocaleString("ko-KR")}원
-                                  </p>
-                                )}
-                                <p
-                                  className={`text-[11px] font-bold mt-1 ${item.payment_status === "paid" ? "text-blue-600" : "text-red-500"}`}
-                                >
-                                  {item.payment_status === "paid"
-                                    ? "✅ 입금완료"
-                                    : "⏳ 미수금"}
-                                </p>
-                                {item.payment_status === "paid" &&
-                                  item.paid_at && (
-                                    <p className="text-[10px] text-slate-400 mt-0.5">
-                                      처리일:{" "}
-                                      {new Date(
-                                        item.paid_at,
-                                      ).toLocaleDateString("ko-KR")}
-                                    </p>
-                                  )}
-                                {item.payment_status !== "paid" &&
-                                  item.price != null && (
+                                  <div className="flex flex-col gap-2">
+                                    <input
+                                      type="text"
+                                      required
+                                      inputMode="numeric"
+                                      maxLength={10}
+                                      placeholder="예: 20260707"
+                                      className="w-full px-3 h-12 py-0 bg-white border border-emerald-200 rounded-xl text-sm outline-none text-slate-900 font-medium"
+                                      value={purchaseData.date}
+                                      onChange={(e) =>
+                                        setPurchaseData({
+                                          ...purchaseData,
+                                          date: formatDateInput(e.target.value),
+                                        })
+                                      }
+                                      onBlur={(e) => validateDateOnBlur(e.target.value, "구매일")}
+                                    />
+                                    <input
+                                      list="product-list"
+                                      type="text"
+                                      placeholder="제품명 입력 (예: 헤모힘)"
+                                      required
+                                      autoComplete="off"
+                                      className="w-full px-4 h-12 py-0 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-medium"
+                                      value={purchaseData.product_name}
+                                      onChange={(e) => handleProductNameChange(e.target.value)}
+                                    />
+                                    <input
+                                      type="text"
+                                      placeholder="대리 주문 대상 이름 (선택)"
+                                      autoComplete="off"
+                                      className="w-full px-4 h-12 py-0 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-medium"
+                                      value={purchaseData.ordered_for}
+                                      onChange={(e) =>
+                                        setPurchaseData({
+                                          ...purchaseData,
+                                          ordered_for: e.target.value,
+                                        })
+                                      }
+                                    />
+                                    <input
+                                      type="text"
+                                      inputMode="numeric"
+                                      maxLength={9}
+                                      placeholder="가격 입력 (예: 35000)"
+                                      className="w-full px-4 h-12 py-0 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-medium"
+                                      value={purchaseData.price}
+                                      onChange={(e) =>
+                                        setPurchaseData({
+                                          ...purchaseData,
+                                          price: formatPriceInput(e.target.value),
+                                        })
+                                      }
+                                    />
+                                    <select
+                                      className="w-full px-4 h-12 py-0 bg-white border border-emerald-200 rounded-xl outline-none text-slate-900 font-bold"
+                                      value={purchaseData.payment_status}
+                                      onChange={(e) =>
+                                        setPurchaseData({
+                                          ...purchaseData,
+                                          payment_status: e.target.value,
+                                        })
+                                      }
+                                    >
+                                      <option value="paid">✅ 입금완료</option>
+                                      <option value="unpaid">⏳ 미수금</option>
+                                    </select>
+                                  </div>
+                                  <div className="flex flex-wrap gap-2 pt-1">
+                                    <select
+                                      className="flex-1 px-3 h-12 py-0 bg-white border border-emerald-200 rounded-xl text-sm outline-none text-slate-900 font-medium"
+                                      value={purchaseData.duration}
+                                      onChange={(e) =>
+                                        setPurchaseData({
+                                          ...purchaseData,
+                                          duration: e.target.value,
+                                          custom_duration:
+                                            e.target.value === "custom"
+                                              ? purchaseData.custom_duration
+                                              : "",
+                                        })
+                                      }
+                                    >
+                                      <option value="">기간 선택 안 함</option>
+                                      <option value="15">15일분</option>
+                                      <option value="30">1개월 (30일)</option>
+                                      <option value="60">2개월 (60일)</option>
+                                      <option value="90">3개월 (90일)</option>
+                                      <option value="120">4개월 (120일)</option>
+                                      <option value="180">6개월 (180일)</option>
+                                      <option value="custom">기타</option>
+                                    </select>
+                                    {purchaseData.duration === "custom" && (
+                                      <input
+                                        type="text"
+                                        inputMode="numeric"
+                                        maxLength={3}
+                                        placeholder="기간 직접 입력 (숫자만)"
+                                        className="flex-1 px-3 h-12 py-0 bg-white border border-emerald-200 rounded-xl text-sm outline-none text-slate-900 font-medium"
+                                        value={purchaseData.custom_duration}
+                                        onChange={(e) =>
+                                          setPurchaseData({
+                                            ...purchaseData,
+                                            custom_duration: onlyDigits(e.target.value, 3),
+                                          })
+                                        }
+                                      />
+                                    )}
                                     <button
                                       type="button"
-                                      onClick={() =>
-                                        confirmMarkPurchaseAsPaid(item.id)
-                                      }
-                                      className="mt-2 bg-blue-600 text-white border border-blue-600 px-3 py-2 rounded-xl font-extrabold text-[11px] shadow-sm active:scale-95 transition-transform"
+                                      onClick={() => {
+                                        setEditingPurchaseId(null);
+                                        setPurchaseData({
+                                          date: today,
+                                          duration: "",
+                                          custom_duration: "",
+                                          price: "",
+                                          payment_status: "paid",
+                                          product_name: "",
+                                          ordered_for: "",
+                                        });
+                                      }}
+                                      className="flex-1 py-3 bg-white border border-slate-300 rounded-xl text-sm font-bold text-slate-700"
                                     >
-                                      💰 입금완료 처리
+                                      취소
                                     </button>
+                                    <button
+                                      type="submit"
+                                      className="flex-1 py-3 bg-emerald-600 text-white rounded-xl text-sm font-bold shadow-sm"
+                                    >
+                                      수정
+                                    </button>
+                                  </div>
+                                </form>
+                              ) : (
+                                <div className="flex justify-between items-end gap-3 flex-nowrap">
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-slate-900 font-bold text-sm truncate">
+                                      {item.product_name}
+                                    </p>
+                                    {item.ordered_for && (
+                                      <p className="text-[11px] text-purple-600 font-bold mt-1">
+                                        대리 주문: {item.ordered_for}
+                                      </p>
+                                    )}
+                                    {item.expiry_date && (
+                                      <p className="text-[11px] text-slate-500 mt-1">
+                                        종료 예정:{" "}
+                                        {new Date(
+                                          item.expiry_date,
+                                        ).toLocaleDateString("ko-KR")}
+                                      </p>
+                                    )}
+                                    {item.price != null && (
+                                      <p className="text-[11px] text-slate-500 mt-1">
+                                        가격: {item.price.toLocaleString("ko-KR")}원
+                                      </p>
+                                    )}
+                                    <p
+                                      className={`text-[11px] font-bold mt-1 ${item.payment_status === "paid" ? "text-blue-600" : "text-red-500"}`}
+                                    >
+                                      {item.payment_status === "paid"
+                                        ? "✅ 입금완료"
+                                        : "⏳ 미수금"}
+                                    </p>
+                                    {item.payment_status === "paid" &&
+                                      item.paid_at && (
+                                        <p className="text-[10px] text-slate-400 mt-0.5">
+                                          처리일:{" "}
+                                          {new Date(
+                                            item.paid_at,
+                                          ).toLocaleDateString("ko-KR")}
+                                        </p>
+                                      )}
+                                    {item.payment_status !== "paid" &&
+                                      item.price != null && (
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            confirmMarkPurchaseAsPaid(item.id)
+                                          }
+                                          className="mt-2 bg-blue-600 text-white border border-blue-600 px-3 py-2 rounded-xl font-extrabold text-[11px] shadow-sm active:scale-95 transition-transform"
+                                        >
+                                          💰 입금완료 처리
+                                        </button>
+                                      )}
+                                  </div>
+                                  {item.duration_days && (
+                                    <span className="shrink-0 text-[11px] bg-white text-emerald-700 border border-emerald-100 px-2 py-1 rounded-lg font-bold whitespace-nowrap">
+                                      {item.duration_days}일분
+                                    </span>
                                   )}
-                              </div>
-                              {item.duration_days && (
-                                <span className="shrink-0 text-[11px] bg-white text-emerald-700 border border-emerald-100 px-2 py-1 rounded-lg font-bold whitespace-nowrap">
-                                  {item.duration_days}일분
-                                </span>
+                                </div>
                               )}
                             </div>
-                          )}
+                          ))}
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                ))
+                      </div>
+                    ))
+                  )}
+                </div>
               )}
             </div>
           </div>
